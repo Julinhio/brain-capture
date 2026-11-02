@@ -55,11 +55,19 @@ async function main(): Promise<void> {
     classifyModel: process.env.GROQ_CLASSIFY_MODEL || 'openai/gpt-oss-20b',
   });
 
+  // Free Groq keys allow 8k tokens per minute (~10 classifications): pace the calls.
+  // `--from N` resumes at case N (0-based) after a rate-limited run.
+  const fromArg = process.argv.indexOf('--from');
+  const from = fromArg > 0 ? Number(process.argv[fromArg + 1]) : 0;
+  const delayMs = Number(process.env.EVAL_DELAY_MS ?? 7000);
+
   let exact = 0;
   let accepted = 0;
   let failures = 0;
   const started = Date.now();
-  for (const c of CASES) {
+  const cases = CASES.slice(from);
+  for (const [i, c] of cases.entries()) {
+    if (i > 0) await new Promise((r) => setTimeout(r, delayMs));
     const t0 = Date.now();
     try {
       const r = await ai.classify(c);
@@ -75,7 +83,7 @@ async function main(): Promise<void> {
     }
   }
   console.log(
-    `\n${exact}/${CASES.length} exact, ${accepted}/${CASES.length} acceptable, ${failures} errors, ${Date.now() - started}ms total`,
+    `\n${exact}/${cases.length} exact, ${accepted}/${cases.length} acceptable, ${failures} errors, ${Date.now() - started}ms total`,
   );
 }
 
