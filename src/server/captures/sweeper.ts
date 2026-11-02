@@ -5,6 +5,7 @@ import { classifyCapture, pendingClassifications } from './service.js';
 
 /** Retries classifications that failed or never ran (Groq down, server restarted mid-request). */
 export async function sweepClassifications(db: Db, ai: Ai, now = new Date()): Promise<number> {
+  if (!ai.available) return 0;
   const rows = await pendingClassifications(db, new Date(now.getTime() - 30_000), 10);
   let done = 0;
   for (const row of rows) {

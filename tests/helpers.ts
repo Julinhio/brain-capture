@@ -9,6 +9,7 @@ import { openDb, type Db } from '../src/server/db/client.js';
 import { users } from '../src/server/db/schema.js';
 
 export class FakeAi implements Ai {
+  available = true;
   classifyCalls: ClassifyInput[] = [];
   failClassify = false;
   failTranscribe = false;

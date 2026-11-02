@@ -42,6 +42,7 @@ export function createGroqAi(options: GroqOptions): Ai {
   const fetchImpl = options.fetchImpl ?? fetch;
 
   return {
+    available: true,
     async transcribe(input: TranscribeInput) {
       const form = new FormData();
       form.append('file', new Blob([new Uint8Array(input.audio)], { type: input.mimeType }), input.filename);
@@ -78,6 +79,7 @@ export function createGroqAi(options: GroqOptions): Ai {
 /** Used when no key is configured (local dev without secrets): captures still save, sorted as Other. */
 export function createUnavailableAi(): Ai {
   return {
+    available: false,
     async transcribe() {
       throw new AiUnavailableError('Transcription is not configured (GROQ_API_KEY missing)');
     },

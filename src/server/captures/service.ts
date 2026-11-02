@@ -136,6 +136,8 @@ export async function listCaptures(
  * by hand is never overwritten.
  */
 export async function classifyCapture(db: Db, ai: Ai, row: CaptureRow): Promise<CaptureRow> {
+  // No key configured yet: leave it pending so it is sorted once a key is added.
+  if (!ai.available) return row;
   const [attempt] = await db
     .update(captures)
     .set({ classificationAttempts: sql`${captures.classificationAttempts} + 1` })

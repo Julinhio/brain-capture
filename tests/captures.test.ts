@@ -114,6 +114,21 @@ describe('classification failure never loses a capture', () => {
     expect(after).toMatchObject({ category: 'jobs', categorySource: 'auto', title: 'Doctolib recruiter follow-up' });
   });
 
+  it('without a configured provider, captures wait as pending instead of burning retries', async () => {
+    ctx.ai.available = false;
+    const saved = (await post({ clientId: newClientId(), kind: 'text', text: 'Saved before the key exists' })).json().capture;
+    expect(saved).toMatchObject({ category: 'other', classificationStatus: 'pending' });
+    const later = new Date(Date.now() + 60_000);
+    for (let i = 0; i < 5; i++) await sweepClassifications(ctx.db, ctx.ai, later);
+    expect(ctx.ai.classifyCalls).toHaveLength(0);
+
+    ctx.ai.available = true;
+    ctx.ai.nextClassification = { category: 'projects', title: 'Sorted later' };
+    expect(await sweepClassifications(ctx.db, ctx.ai, later)).toBe(1);
+    const [after] = await list();
+    expect(after).toMatchObject({ category: 'projects', classificationStatus: 'done' });
+  });
+
   it('stops retrying after three attempts', async () => {
     ctx.ai.failClassify = true;
     await post({ clientId: newClientId(), kind: 'text', text: 'Something' });
