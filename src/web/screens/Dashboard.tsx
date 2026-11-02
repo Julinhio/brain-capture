@@ -5,7 +5,7 @@ import { CATEGORIES, CATEGORY_HINTS, CATEGORY_LABELS, isCategory, type Category 
 import { extractUrl, hostOf, normalizeUrl } from '../../shared/text';
 import type { Capture, CaptureStatus } from '../../shared/types';
 import { Drawer } from '../components/Drawer';
-import { enqueue, send } from '../lib/outbox';
+import { enqueue, onSent, send, type OutboxItem } from '../lib/outbox';
 import { navigate, useSearchParam } from '../lib/router';
 import { clockTime, formatDuration, relativeTime } from '../lib/time';
 import { useCapturePages, useOverview } from '../lib/useCaptures';
@@ -79,7 +79,8 @@ export function Dashboard() {
         </div>
 
         {q ? (
-          <ListView title={`Results for “${q}”`} status="open" q={q} onOpen={open} />
+          // Search looks everywhere (open, done, archived): a finished item is still worth finding.
+          <ListView title={`Results for “${q}”`} status="all" q={q} onOpen={open} />
         ) : view.kind === 'home' ? (
           <Home onOpen={open} />
         ) : view.kind === 'category' ? (
@@ -172,7 +173,7 @@ function ListView({
 }: {
   title: string;
   subtitle?: string;
-  status: CaptureStatus;
+  status: CaptureStatus | 'all';
   category?: Category;
   q?: string;
   onOpen: (id: string) => void;
@@ -208,9 +209,10 @@ function ListView({
 }
 
 function cardMeta(c: Capture): string {
-  if (c.kind === 'voice') return `Voice${c.durationMs ? ` · ${formatDuration(c.durationMs)}` : ''}`;
-  if (c.kind === 'link' && c.url) return `Link · ${hostOf(c.url)}`;
-  return 'Note';
+  const origin =
+    c.kind === 'voice' ? `Voice${c.durationMs ? ` · ${formatDuration(c.durationMs)}` : ''}` : c.kind === 'link' && c.url ? `Link · ${hostOf(c.url)}` : 'Note';
+  // Search mixes statuses: say when a result is no longer open.
+  return c.status === 'open' ? origin : `${origin} · ${c.status === 'done' ? 'Done' : 'Archived'}`;
 }
 
 function Card({ capture: c, onOpen, showCategory = false }: { capture: Capture; onOpen: (id: string) => void; showCategory?: boolean }) {
@@ -258,7 +260,12 @@ function SearchBox({ initial, onSearch }: { initial: string; onSearch: (q: strin
   );
 }
 
-type BarStatus = { kind: 'idle' } | { kind: 'saving' } | { kind: 'saved'; capture: Capture } | { kind: 'queued'; message: string };
+type BarStatus =
+  | { kind: 'idle' }
+  | { kind: 'saving' }
+  | { kind: 'saved'; capture: Capture }
+  | { kind: 'queued'; message: string }
+  | { kind: 'store-failed' };
 
 /** Desktop quick capture. A pasted URL becomes a link capture; anything else is a note. */
 function CaptureBar() {
@@ -269,30 +276,55 @@ function CaptureBar() {
   // Same guard as the compose sheet: a second Enter before the outbox write finishes would
   // still see the old text and queue a duplicate.
   const enqueuing = useRef(false);
+  // The capture the status line is about; a newer capture takes over the line.
+  const followed = useRef<string | null>(null);
+
+  const showSaved = (capture: Capture) => {
+    window.clearTimeout(timer.current);
+    setStatus({ kind: 'saved', capture });
+    void queryClient.invalidateQueries({ queryKey: ['captures'] });
+    timer.current = window.setTimeout(() => setStatus({ kind: 'idle' }), 4000);
+  };
+  const showSavedRef = useRef(showSaved);
+  showSavedRef.current = showSaved;
+
+  // "Not saved yet" must turn into "Saved" when the retry loop sends it in the background.
+  useEffect(
+    () =>
+      onSent((clientId, capture) => {
+        if (followed.current === clientId) showSavedRef.current(capture);
+      }),
+    [],
+  );
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     const text = value.trim();
     if (!text || enqueuing.current) return;
     enqueuing.current = true;
-    setValue('');
     // A lone URL (even without https://) is a link; text with a URL inside is a link with a note.
     const bare = /\s/.test(text) ? null : normalizeUrl(text);
     const url = bare ?? extractUrl(text);
-    let item;
+    let item: OutboxItem;
     try {
       item = await enqueue(url ? { kind: 'link', text: bare ? '' : text, url } : { kind: 'text', text });
+    } catch {
+      // Nothing was stored: the text stays in the field so it can be retried or copied.
+      setStatus({ kind: 'store-failed' });
+      return;
     } finally {
       enqueuing.current = false;
     }
+    // Stored on the device: only now clear the field, unless something new was typed meanwhile.
+    setValue((current) => (current.trim() === text ? '' : current));
+    followed.current = item.clientId;
     setStatus({ kind: 'saving' });
     const result = await send(item);
-    window.clearTimeout(timer.current);
+    if (followed.current !== item.clientId) return;
     if (result.ok) {
-      setStatus({ kind: 'saved', capture: result.capture });
-      void queryClient.invalidateQueries({ queryKey: ['captures'] });
-      timer.current = window.setTimeout(() => setStatus({ kind: 'idle' }), 4000);
+      showSaved(result.capture);
     } else {
+      window.clearTimeout(timer.current);
       setStatus({ kind: 'queued', message: result.retryable ? `${result.message} Kept on this device, it is sent again automatically.` : result.message });
     }
   }
@@ -325,6 +357,9 @@ function CaptureBar() {
           </>
         )}
         {status.kind === 'queued' && <span className="field-error">Not saved yet. {status.message}</span>}
+        {status.kind === 'store-failed' && (
+          <span className="field-error">This device could not store it, so nothing was saved. Your text is still in the field.</span>
+        )}
       </p>
     </div>
   );

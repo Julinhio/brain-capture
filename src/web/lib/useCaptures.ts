@@ -15,7 +15,7 @@ export function useOverview() {
 }
 
 /** History pages, newest first; filtering happens on the server so paging stays exact. */
-export function useCapturePages(status: CaptureStatus, category: Category | 'all', q = '') {
+export function useCapturePages(status: CaptureStatus | 'all', category: Category | 'all', q = '') {
   return useInfiniteQuery({
     queryKey: ['captures', 'pages', status, category, q],
     queryFn: ({ pageParam }) =>
