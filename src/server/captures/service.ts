@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, lt, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, ne, or, sql } from 'drizzle-orm';
 import type { Category } from '../../shared/categories.js';
 import { fallbackTitle } from '../../shared/text.js';
 import type { Capture, CaptureKind, CaptureStatus } from '../../shared/types.js';
@@ -84,13 +84,50 @@ export async function getCapture(db: Db, ownerId: string, id: string): Promise<C
   return row ?? null;
 }
 
-export async function listCaptures(db: Db, ownerId: string, statuses: CaptureStatus[], limit = 500): Promise<CaptureRow[]> {
-  return db
+export interface PageCursor {
+  createdAt: Date;
+  id: string;
+}
+
+export function encodeCursor(row: Pick<CaptureRow, 'createdAt' | 'id'>): string {
+  return `${row.createdAt.toISOString()}_${row.id}`;
+}
+
+export function decodeCursor(raw: string): PageCursor | null {
+  const [iso, id] = raw.split('_');
+  if (!iso || !id || !/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const createdAt = new Date(iso);
+  return Number.isNaN(createdAt.getTime()) ? null : { createdAt, id };
+}
+
+/**
+ * Newest first, keyset-paginated on (created_at, id) so nothing is skipped or repeated when
+ * two captures share a timestamp or new ones arrive between pages.
+ */
+export async function listCaptures(
+  db: Db,
+  ownerId: string,
+  statuses: CaptureStatus[],
+  { limit, before, category }: { limit: number; before?: PageCursor | null; category?: Category },
+): Promise<{ rows: CaptureRow[]; nextCursor: string | null }> {
+  const rows = await db
     .select()
     .from(captures)
-    .where(and(eq(captures.ownerId, ownerId), inArray(captures.status, statuses)))
-    .orderBy(desc(captures.createdAt))
-    .limit(limit);
+    .where(
+      and(
+        eq(captures.ownerId, ownerId),
+        inArray(captures.status, statuses),
+        category ? eq(captures.category, category) : undefined,
+        before
+          ? or(lt(captures.createdAt, before.createdAt), and(eq(captures.createdAt, before.createdAt), lt(captures.id, before.id)))
+          : undefined,
+      ),
+    )
+    .orderBy(desc(captures.createdAt), desc(captures.id))
+    .limit(limit + 1);
+  const page = rows.slice(0, limit);
+  const last = page[page.length - 1];
+  return { rows: page, nextCursor: rows.length > limit && last ? encodeCursor(last) : null };
 }
 
 /**

@@ -5,7 +5,7 @@ import { extractUrl, normalizeUrl, stripUrls } from '../../shared/text.js';
 import type { CaptureStatus } from '../../shared/types.js';
 import type { AppDeps } from '../app.js';
 import { sendError } from '../http.js';
-import { classifyCapture, getCapture, insertCapture, listCaptures, toCapture, updateCapture } from './service.js';
+import { classifyCapture, decodeCursor, getCapture, insertCapture, listCaptures, toCapture, updateCapture } from './service.js';
 
 const MAX_TEXT = 20_000;
 
@@ -28,6 +28,9 @@ const patchSchema = z
 
 const listQuery = z.object({
   status: z.enum(['open', 'done', 'archived', 'all']).default('open'),
+  category: z.enum(CATEGORIES).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(100),
+  before: z.string().max(80).optional(),
 });
 
 const idParams = z.object({ id: z.uuid() });
@@ -35,10 +38,16 @@ const idParams = z.object({ id: z.uuid() });
 export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps): void {
   app.get('/api/captures', async (req, reply) => {
     const query = listQuery.safeParse(req.query);
-    if (!query.success) return sendError(reply, 400, 'invalid_input', 'Unknown status filter.');
+    if (!query.success) return sendError(reply, 400, 'invalid_input', 'Invalid list filter.');
+    const before = query.data.before ? decodeCursor(query.data.before) : null;
+    if (query.data.before && !before) return sendError(reply, 400, 'invalid_input', 'Invalid page cursor.');
     const statuses: CaptureStatus[] = query.data.status === 'all' ? ['open', 'done', 'archived'] : [query.data.status];
-    const rows = await listCaptures(db, req.user!.id, statuses);
-    return { captures: rows.map(toCapture) };
+    const page = await listCaptures(db, req.user!.id, statuses, {
+      limit: query.data.limit,
+      before,
+      category: query.data.category,
+    });
+    return { captures: page.rows.map(toCapture), nextCursor: page.nextCursor };
   });
 
   app.get('/api/captures/:id', async (req, reply) => {

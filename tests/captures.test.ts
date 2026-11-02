@@ -168,6 +168,42 @@ describe('editing and status', () => {
   });
 });
 
+describe('pagination', () => {
+  it('walks every capture exactly once, newest first, even with identical timestamps', async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 7; i++) ids.push((await post({ clientId: newClientId(), kind: 'text', text: `Note ${i}` })).json().capture.id);
+    // Force ties on created_at: the cursor must fall back on the id.
+    await ctx.db.update(captures).set({ createdAt: new Date('2026-11-01T10:00:00.000Z') });
+
+    const seen: string[] = [];
+    let before: string | null = null;
+    for (let guard = 0; guard < 10; guard++) {
+      const qs = new URLSearchParams({ status: 'open', limit: '3', ...(before ? { before } : {}) });
+      const res = await ctx.app.inject({ method: 'GET', url: `/api/captures?${qs}`, headers: { cookie } });
+      const body = res.json() as { captures: Capture[]; nextCursor: string | null };
+      seen.push(...body.captures.map((c) => c.id));
+      before = body.nextCursor;
+      if (!before) break;
+    }
+    expect(seen).toHaveLength(7);
+    expect(new Set(seen)).toEqual(new Set(ids));
+  });
+
+  it('filters by category on the server', async () => {
+    ctx.ai.nextClassification = { category: 'jobs', title: 'Job' };
+    await post({ clientId: newClientId(), kind: 'text', text: 'Job offer' });
+    ctx.ai.nextClassification = { category: 'learning', title: 'Course' };
+    await post({ clientId: newClientId(), kind: 'text', text: 'Course' });
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/captures?status=open&category=learning', headers: { cookie } });
+    expect(res.json().captures.map((c: Capture) => c.title)).toEqual(['Course']);
+  });
+
+  it('rejects a malformed cursor', async () => {
+    const res = await ctx.app.inject({ method: 'GET', url: '/api/captures?before=garbage', headers: { cookie } });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
 describe('isolation between accounts', () => {
   it('another account can neither see, read nor change my captures', async () => {
     const mine = (await post({ clientId: newClientId(), kind: 'text', text: 'Private note' })).json().capture as Capture;

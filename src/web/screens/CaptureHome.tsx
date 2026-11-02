@@ -7,7 +7,7 @@ import { ComposeSheet, type ComposeValue } from '../components/ComposeSheet';
 import { discard, enqueue, flush, pendingItems, send, subscribe, type OutboxItem } from '../lib/outbox';
 import { navigate } from '../lib/router';
 import { clockTime, relativeTime } from '../lib/time';
-import { useCaptures } from '../lib/useCaptures';
+import { useRecentCaptures } from '../lib/useCaptures';
 
 type Mode =
   | { name: 'home' }
@@ -31,11 +31,11 @@ export function TopBar() {
   );
 }
 
-function usePendingCount(): number {
+function usePendingItems(): OutboxItem[] {
   const queryClient = useQueryClient();
-  const [count, setCount] = useState(0);
+  const [items, setItems] = useState<OutboxItem[]>([]);
   useEffect(() => {
-    const refresh = () => void pendingItems().then((items) => setCount(items.length));
+    const refresh = () => void pendingItems().then(setItems);
     refresh();
     return subscribe(() => {
       refresh();
@@ -43,14 +43,15 @@ function usePendingCount(): number {
       void queryClient.invalidateQueries({ queryKey: ['captures'] });
     });
   }, [queryClient]);
-  return count;
+  return items;
 }
 
 export function CaptureHome() {
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<Mode>({ name: 'home' });
-  const recent = useCaptures('open');
-  const pending = usePendingCount();
+  const recent = useRecentCaptures(3);
+  const pending = usePendingItems();
+  const blocked = pending.find((i) => i.blocked);
 
   async function save(kind: 'text' | 'link', value: ComposeValue, replaces?: string) {
     // Stored on the device first: from here on, closing the app cannot lose it.
@@ -129,7 +130,7 @@ export function CaptureHome() {
     );
   }
 
-  const latest = recent.data?.slice(0, 3) ?? [];
+  const latest = recent.data ?? [];
 
   return (
     <main className="screen">
@@ -154,15 +155,29 @@ export function CaptureHome() {
         </button>
       </div>
 
-      {pending > 0 && (
+      {pending.length > 0 && (
         <div className="banner" role="status">
           <AlertTriangle size={18} aria-hidden="true" />
           <span className="grow">
-            {pending === 1 ? '1 capture is' : `${pending} captures are`} waiting to be saved.
+            {blocked
+              ? 'A capture could not be saved as is.'
+              : `${pending.length === 1 ? '1 capture is' : `${pending.length} captures are`} waiting to be saved.`}
           </span>
-          <button type="button" className="btn btn-sm" onClick={() => void flush()}>
-            Retry now
-          </button>
+          {blocked ? (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() =>
+                setMode({ name: 'not-saved', item: blocked, message: blocked.lastError ?? 'The server refused it.', retryable: false })
+              }
+            >
+              Review
+            </button>
+          ) : (
+            <button type="button" className="btn btn-sm" onClick={() => void flush()}>
+              Retry now
+            </button>
+          )}
         </div>
       )}
 

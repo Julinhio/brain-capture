@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
-import { api, RequestError } from './lib/api';
+import { api, onUnauthorized, RequestError } from './lib/api';
 import { startAutoFlush } from './lib/outbox';
 import { usePath } from './lib/router';
 import { CaptureHome } from './screens/CaptureHome';
@@ -8,6 +8,7 @@ import { History } from './screens/History';
 import { Login } from './screens/Login';
 
 export function App() {
+  const queryClient = useQueryClient();
   const me = useQuery({ queryKey: ['me'], queryFn: api.me, retry: false, staleTime: Infinity });
   const path = usePath();
   // Opening the app with no network must still allow a capture: only a real 401 means
@@ -15,6 +16,17 @@ export function App() {
   const offline = me.error instanceof RequestError && me.error.code === 'network';
   const signedIn = Boolean(me.data) || offline;
 
+  useEffect(
+    () =>
+      onUnauthorized(() => {
+        queryClient.setQueryData(['me'], null);
+        queryClient.removeQueries({ queryKey: ['captures'] });
+        queryClient.removeQueries({ queryKey: ['capture'] });
+      }),
+    [queryClient],
+  );
+
+  // Re-runs on every sign-in, so captures queued while signed out leave right after.
   useEffect(() => {
     if (!signedIn) return;
     return startAutoFlush();

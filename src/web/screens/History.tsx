@@ -5,32 +5,22 @@ import type { Capture, CaptureStatus } from '../../shared/types';
 import { CaptureView } from '../components/CaptureView';
 import { navigate, useSearchParam } from '../lib/router';
 import { relativeTime } from '../lib/time';
-import { useCaptures, useUpdateCapture } from '../lib/useCaptures';
+import { useCapture, useCapturePages, useUpdateCapture } from '../lib/useCaptures';
 import { TopBar } from './CaptureHome';
 
 const KIND_LABEL = { voice: 'Voice', text: 'Note', link: 'Link' } as const;
 
 export function History() {
   const selectedId = useSearchParam('id');
+  if (selectedId) return <DetailLoader id={selectedId} />;
+  return <HistoryList />;
+}
+
+function HistoryList() {
   const [status, setStatus] = useState<CaptureStatus>('open');
   const [category, setCategory] = useState<Category | 'all'>('all');
-  const captures = useCaptures('all');
-
-  const selected = selectedId ? captures.data?.find((c) => c.id === selectedId) : undefined;
-  if (selectedId) {
-    if (captures.isPending) return null;
-    if (!selected) {
-      return (
-        <main className="screen">
-          <TopBar />
-          <p className="empty">This capture could not be found.</p>
-        </main>
-      );
-    }
-    return <Detail capture={selected} />;
-  }
-
-  const visible = (captures.data ?? []).filter((c) => c.status === status && (category === 'all' || c.category === category));
+  const pages = useCapturePages(status, category);
+  const visible = pages.data?.pages.flatMap((p) => p.captures) ?? [];
 
   return (
     <main className="screen">
@@ -57,8 +47,8 @@ export function History() {
       </div>
 
       <div className="list">
-        {captures.isError && <p className="empty">Could not load your captures. Check your connection.</p>}
-        {captures.isSuccess && visible.length === 0 && <p className="empty">Nothing here.</p>}
+        {pages.isError && <p className="empty">Could not load your captures. Check your connection.</p>}
+        {pages.isSuccess && visible.length === 0 && <p className="empty">Nothing here.</p>}
         {visible.map((c) => (
           <button key={c.id} type="button" className="list-item" data-cat={c.category} onClick={() => navigate(`/history?id=${c.id}`)}>
             <span className="cat-dot" aria-hidden="true" />
@@ -69,8 +59,33 @@ export function History() {
           </button>
         ))}
       </div>
+      {pages.hasNextPage && (
+        <button
+          type="button"
+          className="btn btn-block"
+          style={{ marginTop: 12 }}
+          onClick={() => void pages.fetchNextPage()}
+          disabled={pages.isFetchingNextPage}
+        >
+          {pages.isFetchingNextPage ? 'Loading…' : 'Load older'}
+        </button>
+      )}
     </main>
   );
+}
+
+function DetailLoader({ id }: { id: string }) {
+  const capture = useCapture(id);
+  if (capture.isPending) return null;
+  if (!capture.data) {
+    return (
+      <main className="screen">
+        <TopBar />
+        <p className="empty">This capture could not be found.</p>
+      </main>
+    );
+  }
+  return <Detail capture={capture.data} />;
 }
 
 function Detail({ capture }: { capture: Capture }) {
@@ -80,7 +95,7 @@ function Detail({ capture }: { capture: Capture }) {
   return (
     <main className="screen">
       <header className="topbar">
-        <button type="button" className="pill-btn" onClick={() => window.history.length > 1 ? window.history.back() : navigate('/history')}>
+        <button type="button" className="pill-btn" onClick={() => (window.history.length > 1 ? window.history.back() : navigate('/history'))}>
           <ArrowLeft size={16} aria-hidden="true" />
           Back
         </button>
@@ -88,7 +103,7 @@ function Detail({ capture }: { capture: Capture }) {
           {KIND_LABEL[capture.kind]} · {relativeTime(capture.createdAt)}
         </span>
       </header>
-      <CaptureView capture={capture} onChange={() => undefined} />
+      <CaptureView key={capture.id} capture={capture} onChange={() => undefined} />
       <div className="bottom-bar">
         {capture.status === 'open' ? (
           <>

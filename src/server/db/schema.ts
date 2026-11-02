@@ -54,7 +54,9 @@ export const captures = pgTable(
     status: captureStatusEnum('status').notNull().default('open'),
     durationMs: integer('duration_ms'),
     device: text('device'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    // Millisecond precision: the pagination cursor round-trips through a JS Date, which
+    // would silently drop PostgreSQL's microseconds and skip rows between pages.
+    createdAt: timestamp('created_at', { withTimezone: true, precision: 3 }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     doneAt: timestamp('done_at', { withTimezone: true }),
     archivedAt: timestamp('archived_at', { withTimezone: true }),

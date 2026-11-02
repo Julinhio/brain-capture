@@ -20,7 +20,7 @@ CREATE TABLE "captures" (
 	"status" "capture_status" DEFAULT 'open' NOT NULL,
 	"duration_ms" integer,
 	"device" text,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"created_at" timestamp (3) with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"done_at" timestamp with time zone,
 	"archived_at" timestamp with time zone

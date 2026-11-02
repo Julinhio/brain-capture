@@ -18,6 +18,14 @@ export class RequestError extends Error {
   }
 }
 
+// A 401 anywhere means the session is gone (expired, password changed on another device):
+// the app must fall back to the sign-in screen instead of failing request after request.
+const unauthorizedListeners = new Set<() => void>();
+export function onUnauthorized(listener: () => void): () => void {
+  unauthorizedListeners.add(listener);
+  return () => unauthorizedListeners.delete(listener);
+}
+
 async function request<T>(method: string, path: string, body?: unknown | FormData): Promise<T> {
   let res: Response;
   try {
@@ -31,6 +39,7 @@ async function request<T>(method: string, path: string, body?: unknown | FormDat
     throw new RequestError('network', 'No connection right now.', 0);
   }
   if (!res.ok) {
+    if (res.status === 401 && path !== '/api/auth/login') for (const l of unauthorizedListeners) l();
     let payload: Partial<ApiError> = {};
     try {
       payload = (await res.json()) as ApiError;
@@ -46,8 +55,14 @@ export const api = {
   me: () => request<Me | null>('GET', '/api/me'),
   login: (email: string, password: string) => request<Me>('POST', '/api/auth/login', { email, password }),
   logout: () => request<{ ok: true }>('POST', '/api/auth/logout'),
-  listCaptures: (status: CaptureStatus | 'all' = 'open') =>
-    request<{ captures: Capture[] }>('GET', `/api/captures?status=${status}`).then((r) => r.captures),
+  listCaptures: (params: { status?: CaptureStatus | 'all'; category?: Category; limit?: number; before?: string | null } = {}) => {
+    const qs = new URLSearchParams({ status: params.status ?? 'open' });
+    if (params.category) qs.set('category', params.category);
+    if (params.limit) qs.set('limit', String(params.limit));
+    if (params.before) qs.set('before', params.before);
+    return request<{ captures: Capture[]; nextCursor: string | null }>('GET', `/api/captures?${qs}`);
+  },
+  getCapture: (id: string) => request<{ capture: Capture }>('GET', `/api/captures/${id}`).then((r) => r.capture),
   createCapture: (input: { clientId: string; kind: 'text' | 'link'; text: string; url?: string; device: string }) =>
     request<{ capture: Capture; created: boolean }>('POST', '/api/captures', input).then((r) => r.capture),
   updateCapture: (id: string, patch: { title?: string; text?: string; category?: Category; status?: CaptureStatus }) =>
