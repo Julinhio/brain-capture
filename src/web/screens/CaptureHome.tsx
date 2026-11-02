@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Capture } from '../../shared/types';
 import { CaptureView } from '../components/CaptureView';
 import { ComposeSheet, type ComposeValue } from '../components/ComposeSheet';
-import { discard, enqueue, flush, pendingItems, send, subscribe, type NewOutboxItem, type OutboxItem } from '../lib/outbox';
+import { discard, enqueue, flush, onSent, pendingItems, send, subscribe, type NewOutboxItem, type OutboxItem } from '../lib/outbox';
 import { navigate } from '../lib/router';
 import { clockTime, formatDuration, relativeTime } from '../lib/time';
 import { useRecentCaptures } from '../lib/useCaptures';
@@ -96,6 +96,23 @@ export function CaptureHome() {
       setMode({ name: 'not-saved', item, message: result.message, retryable: result.retryable });
     }
   }
+
+  // The followed capture can be saved by the retry loop while this screen shows "Saving…" or
+  // "Not saved yet". Follow it to "Saved", otherwise the screen lies (and Discard would only
+  // drop the local copy of something already stored).
+  useEffect(
+    () =>
+      onSent((clientId, capture) => {
+        if (followed.current !== clientId) return;
+        setMode((prev) =>
+          (prev.name === 'saving' || prev.name === 'not-saved') && prev.item.clientId === clientId
+            ? { name: 'saved', capture, notice: prev.name === 'saving' ? prev.notice : undefined }
+            : prev,
+        );
+        void queryClient.invalidateQueries({ queryKey: ['captures'] });
+      }),
+    [queryClient],
+  );
 
   function goHome() {
     followed.current = null;
@@ -406,8 +423,8 @@ function NotSaved({
         <h1>Not saved yet</h1>
         {mode.retryable ? (
           <p className="lead">
-            {mode.message} Your {voice ? 'recording' : 'capture'} is safe on this device. It is sent again when the app is open
-            and online.
+            {mode.message} Your {voice ? 'recording' : 'capture'} is safe on this device. It is sent automatically while the app is
+            open, and this screen updates as soon as it is saved.
           </p>
         ) : (
           <p className="lead">{mode.message}</p>
@@ -416,7 +433,7 @@ function NotSaved({
           <div className="list" style={{ marginTop: 24 }}>
             <div className="list-item" style={{ cursor: 'default' }}>
               <span className="rec-dot" style={{ background: 'var(--warning)' }} aria-hidden="true" />
-              <span className="grow">{mode.retryable ? 'Waiting to be sent again' : 'Recording kept on this device'}</span>
+              <span className="grow">{mode.retryable ? 'Retrying automatically' : 'Recording kept on this device'}</span>
               <span className="meta mono">{formatDuration(mode.item.durationMs)}</span>
             </div>
           </div>

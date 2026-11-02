@@ -94,6 +94,7 @@ export function send(item: OutboxItem): Promise<SendResult> {
     try {
       const capture = await upload(item);
       await (await db()).delete('outbox', item.clientId);
+      for (const l of sentListeners) l(item.clientId, capture);
       return { ok: true, capture };
     } catch (err) {
       const e = err instanceof RequestError ? err : new RequestError('network', 'No connection right now.', 0);
@@ -120,6 +121,18 @@ export async function flush(): Promise<void> {
     const result = await send(item);
     if (!result.ok && result.retryable) break; // Still offline: no point hammering the rest.
   }
+}
+
+/**
+ * Fires for every confirmed save, whoever sent it (a screen, the retry loop, the banner).
+ * Screens showing a waiting capture use it to move on when it leaves in the background:
+ * a static "Not saved yet" over an already saved capture was the real Android bug.
+ */
+type SentListener = (clientId: string, capture: Capture) => void;
+const sentListeners = new Set<SentListener>();
+export function onSent(listener: SentListener): () => void {
+  sentListeners.add(listener);
+  return () => sentListeners.delete(listener);
 }
 
 type Listener = () => void;
