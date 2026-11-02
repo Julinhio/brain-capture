@@ -10,12 +10,16 @@ export function useRecentCaptures(limit = 5) {
   });
 }
 
+export function useOverview() {
+  return useQuery({ queryKey: ['captures', 'overview'], queryFn: api.overview, refetchInterval: 60_000 });
+}
+
 /** History pages, newest first; filtering happens on the server so paging stays exact. */
-export function useCapturePages(status: CaptureStatus, category: Category | 'all') {
+export function useCapturePages(status: CaptureStatus | 'all', category: Category | 'all', q = '') {
   return useInfiniteQuery({
-    queryKey: ['captures', 'pages', status, category],
+    queryKey: ['captures', 'pages', status, category, q],
     queryFn: ({ pageParam }) =>
-      api.listCaptures({ status, category: category === 'all' ? undefined : category, limit: 50, before: pageParam }),
+      api.listCaptures({ status, category: category === 'all' ? undefined : category, q: q || undefined, limit: 50, before: pageParam }),
     initialPageParam: null as string | null,
     getNextPageParam: (last) => last.nextCursor,
   });

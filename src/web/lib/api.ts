@@ -1,6 +1,14 @@
 import type { ApiError, ApiErrorCode, Capture, CaptureStatus, Me } from '../../shared/types';
 import type { Category } from '../../shared/categories';
 
+export interface Overview {
+  counts: Record<Category, number>;
+  done: number;
+  archived: number;
+  recent: number;
+  sections: Record<Category, Capture[]>;
+}
+
 /** `network` means the request never got an answer: the capture is still safe on the device. */
 export class RequestError extends Error {
   constructor(
@@ -62,9 +70,13 @@ export const api = {
   me: () => request<Me | null>('GET', '/api/me'),
   login: (email: string, password: string) => request<Me>('POST', '/api/auth/login', { email, password }),
   logout: () => request<{ ok: true }>('POST', '/api/auth/logout'),
-  listCaptures: (params: { status?: CaptureStatus | 'all'; category?: Category; limit?: number; before?: string | null } = {}) => {
+  overview: () => request<Overview>('GET', '/api/overview'),
+  listCaptures: (
+    params: { status?: CaptureStatus | 'all'; category?: Category; q?: string; limit?: number; before?: string | null } = {},
+  ) => {
     const qs = new URLSearchParams({ status: params.status ?? 'open' });
     if (params.category) qs.set('category', params.category);
+    if (params.q) qs.set('q', params.q);
     if (params.limit) qs.set('limit', String(params.limit));
     if (params.before) qs.set('before', params.before);
     return request<{ captures: Capture[]; nextCursor: string | null }>('GET', `/api/captures?${qs}`);

@@ -10,6 +10,7 @@ import {
   decodeCursor,
   findByClientId,
   getCapture,
+  getOverview,
   insertCapture,
   listCaptures,
   toCapture,
@@ -38,6 +39,7 @@ const patchSchema = z
 const listQuery = z.object({
   status: z.enum(['open', 'done', 'archived', 'all']).default('open'),
   category: z.enum(CATEGORIES).optional(),
+  q: z.string().trim().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(100),
   before: z.string().max(80).optional(),
 });
@@ -65,8 +67,17 @@ export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps)
       limit: query.data.limit,
       before,
       category: query.data.category,
+      q: query.data.q || undefined,
     });
     return { captures: page.rows.map(toCapture), nextCursor: page.nextCursor };
+  });
+
+  app.get('/api/overview', async (req) => {
+    const overview = await getOverview(db, req.user!.id, 3);
+    return {
+      ...overview,
+      sections: Object.fromEntries(Object.entries(overview.sections).map(([c, rows]) => [c, rows.map(toCapture)])),
+    };
   });
 
   app.get('/api/captures/:id', async (req, reply) => {
