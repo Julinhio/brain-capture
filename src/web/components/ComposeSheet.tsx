@@ -15,7 +15,8 @@ export function ComposeSheet({
 }: {
   kind: 'text' | 'link';
   initial?: ComposeValue;
-  onSubmit: (value: ComposeValue) => void;
+  /** Rejects only when the capture could not be stored on the device: nothing was saved. */
+  onSubmit: (value: ComposeValue) => Promise<void>;
   onClose: () => void;
 }) {
   const [text, setText] = useState(initial?.text ?? '');
@@ -25,6 +26,7 @@ export function ComposeSheet({
   // (the sheet stays open until the outbox write finishes); the state disables the button.
   const submittedRef = useRef(false);
   const [submitted, setSubmitted] = useState(false);
+  const [storeError, setStoreError] = useState(false);
 
   const normalized = kind === 'link' ? normalizeUrl(url) : null;
   const canSave = kind === 'link' ? Boolean(normalized) : text.trim().length > 0;
@@ -35,7 +37,14 @@ export function ComposeSheet({
     if (!canSave || submittedRef.current) return;
     submittedRef.current = true;
     setSubmitted(true);
-    onSubmit(kind === 'link' ? { text: text.trim(), url: normalized! } : { text: text.trim() });
+    setStoreError(false);
+    onSubmit(kind === 'link' ? { text: text.trim(), url: normalized! } : { text: text.trim() }).catch(() => {
+      // The device refused the write (storage full or blocked): nothing exists anywhere yet,
+      // so a new attempt cannot duplicate. Unlock and keep what was typed.
+      submittedRef.current = false;
+      setSubmitted(false);
+      setStoreError(true);
+    });
   }
 
   return (
@@ -92,6 +101,11 @@ export function ComposeSheet({
               autoFocus
             />
           </div>
+        )}
+        {storeError && (
+          <p className="field-error" role="alert" style={{ marginTop: 12, marginBottom: 0 }}>
+            This device could not store it, so nothing was saved. Your text is still here: try again, or copy it.
+          </p>
         )}
         <div className="sheet-actions">
           <button type="button" className="btn btn-ghost" onClick={onClose}>

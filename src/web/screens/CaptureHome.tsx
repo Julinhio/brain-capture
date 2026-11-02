@@ -53,10 +53,13 @@ export function CaptureHome() {
   const pending = usePendingItems();
   const blocked = pending.find((i) => i.blocked);
 
+  /** Rejects only if the device write fails; once stored, every later step handles its own errors. */
   async function save(kind: 'text' | 'link', value: ComposeValue, replaces?: string) {
     // Stored on the device first: from here on, closing the app cannot lose it.
     const item = await enqueue({ kind, text: value.text, url: value.url });
-    if (replaces) await discard(replaces);
+    // The new copy exists: a failure removing the old one must not unlock the sheet (it
+    // would invite a duplicate). Worst case the old draft stays listed as waiting.
+    if (replaces) await discard(replaces).catch(() => undefined);
     await attempt(item);
   }
 
@@ -208,7 +211,7 @@ export function CaptureHome() {
           kind={mode.kind}
           initial={mode.initial}
           onClose={() => setMode({ name: 'home' })}
-          onSubmit={(value) => void save(mode.kind, value, mode.replaces)}
+          onSubmit={(value) => save(mode.kind, value, mode.replaces)}
         />
       )}
     </main>
