@@ -20,10 +20,13 @@ export function CaptureView({
   capture,
   header,
   onChange,
+  inlineCategories = false,
 }: {
   capture: Capture;
   header?: ReactNode;
   onChange: (capture: Capture) => void;
+  /** Desktop drawer: all categories visible at once instead of behind a "Change" chip. */
+  inlineCategories?: boolean;
 }) {
   const update = useUpdateCapture(onChange);
   const [pickingCategory, setPickingCategory] = useState(false);
@@ -89,7 +92,7 @@ export function CaptureView({
             Category
           </span>
         </div>
-        {pickingCategory ? (
+        {pickingCategory || inlineCategories ? (
           <CategoryOptions
             value={capture.category}
             onChange={(category) => {

@@ -1,5 +1,5 @@
-import { and, desc, eq, inArray, lt, ne, or, sql } from 'drizzle-orm';
-import type { Category } from '../../shared/categories.js';
+import { and, desc, eq, gt, ilike, inArray, lt, ne, or, sql } from 'drizzle-orm';
+import { CATEGORIES, type Category } from '../../shared/categories.js';
 import { fallbackTitle } from '../../shared/text.js';
 import type { Capture, CaptureKind, CaptureStatus } from '../../shared/types.js';
 import type { Ai } from '../ai/types.js';
@@ -108,8 +108,9 @@ export async function listCaptures(
   db: Db,
   ownerId: string,
   statuses: CaptureStatus[],
-  { limit, before, category }: { limit: number; before?: PageCursor | null; category?: Category },
+  { limit, before, category, q }: { limit: number; before?: PageCursor | null; category?: Category; q?: string },
 ): Promise<{ rows: CaptureRow[]; nextCursor: string | null }> {
+  const pattern = q ? `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%` : null;
   const rows = await db
     .select()
     .from(captures)
@@ -118,6 +119,7 @@ export async function listCaptures(
         eq(captures.ownerId, ownerId),
         inArray(captures.status, statuses),
         category ? eq(captures.category, category) : undefined,
+        pattern ? or(ilike(captures.title, pattern), ilike(captures.text, pattern), ilike(captures.url, pattern)) : undefined,
         before
           ? or(lt(captures.createdAt, before.createdAt), and(eq(captures.createdAt, before.createdAt), lt(captures.id, before.id)))
           : undefined,
@@ -128,6 +130,50 @@ export async function listCaptures(
   const page = rows.slice(0, limit);
   const last = page[page.length - 1];
   return { rows: page, nextCursor: rows.length > limit && last ? encodeCursor(last) : null };
+}
+
+export interface Overview {
+  counts: Record<Category, number>;
+  done: number;
+  archived: number;
+  /** Open captures created in the last 24 hours. */
+  recent: number;
+  sections: Record<Category, CaptureRow[]>;
+}
+
+/** Everything the desktop home needs in one round trip: counts plus the latest few per category. */
+export async function getOverview(db: Db, ownerId: string, perCategory: number, now = new Date()): Promise<Overview> {
+  const grouped = await db
+    .select({ status: captures.status, category: captures.category, n: sql<number>`count(*)::int` })
+    .from(captures)
+    .where(eq(captures.ownerId, ownerId))
+    .groupBy(captures.status, captures.category);
+  const [recentRow] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(captures)
+    .where(
+      and(eq(captures.ownerId, ownerId), eq(captures.status, 'open'), gt(captures.createdAt, new Date(now.getTime() - 86_400_000))),
+    );
+
+  const counts = Object.fromEntries(CATEGORIES.map((c) => [c, 0])) as Record<Category, number>;
+  let done = 0;
+  let archived = 0;
+  for (const g of grouped) {
+    if (g.status === 'open') counts[g.category] += g.n;
+    else if (g.status === 'done') done += g.n;
+    else archived += g.n;
+  }
+
+  const sections = Object.fromEntries(
+    await Promise.all(
+      CATEGORIES.map(async (category) => {
+        const page = await listCaptures(db, ownerId, ['open'], { limit: perCategory, category });
+        return [category, page.rows] as const;
+      }),
+    ),
+  ) as Record<Category, CaptureRow[]>;
+
+  return { counts, done, archived, recent: recentRow?.n ?? 0, sections };
 }
 
 /**
