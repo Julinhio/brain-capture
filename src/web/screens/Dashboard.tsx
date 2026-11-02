@@ -5,7 +5,7 @@ import { CATEGORIES, CATEGORY_HINTS, CATEGORY_LABELS, isCategory, type Category 
 import { extractUrl, hostOf, normalizeUrl } from '../../shared/text';
 import type { Capture, CaptureStatus } from '../../shared/types';
 import { Drawer } from '../components/Drawer';
-import { enqueue, onSent, send, type OutboxItem } from '../lib/outbox';
+import { discard, enqueue, onSent, send, type OutboxItem } from '../lib/outbox';
 import { navigate, useSearchParam } from '../lib/router';
 import { clockTime, formatDuration, relativeTime } from '../lib/time';
 import { useCapturePages, useOverview } from '../lib/useCaptures';
@@ -265,6 +265,7 @@ type BarStatus =
   | { kind: 'saving' }
   | { kind: 'saved'; capture: Capture }
   | { kind: 'queued'; message: string }
+  | { kind: 'refused'; message: string }
   | { kind: 'store-failed' };
 
 /** Desktop quick capture. A pasted URL becomes a link capture; anything else is a note. */
@@ -323,9 +324,17 @@ function CaptureBar() {
     if (followed.current !== item.clientId) return;
     if (result.ok) {
       showSaved(result.capture);
-    } else {
+    } else if (result.retryable) {
       window.clearTimeout(timer.current);
-      setStatus({ kind: 'queued', message: result.retryable ? `${result.message} Kept on this device, it is sent again automatically.` : result.message });
+      setStatus({ kind: 'queued', message: `${result.message} Kept on this device, it is sent again automatically.` });
+    } else {
+      // The server refused the content itself, so nothing exists on the server and retrying
+      // as is cannot work. Desktop has no outbox screen: put the text back in the field to be
+      // fixed, and drop the blocked copy instead of leaving it stuck out of reach.
+      window.clearTimeout(timer.current);
+      await discard(item.clientId).catch(() => undefined);
+      setValue((current) => (current.trim() ? current : text));
+      setStatus({ kind: 'refused', message: result.message });
     }
   }
 
@@ -357,6 +366,9 @@ function CaptureBar() {
           </>
         )}
         {status.kind === 'queued' && <span className="field-error">Not saved yet. {status.message}</span>}
+        {status.kind === 'refused' && (
+          <span className="field-error">Not saved. {status.message} Your text is back in the field: fix it and press Enter.</span>
+        )}
         {status.kind === 'store-failed' && (
           <span className="field-error">This device could not store it, so nothing was saved. Your text is still in the field.</span>
         )}

@@ -72,6 +72,33 @@ async function main() {
   const lineUpdated = await status.getByText('Saved to').waitFor({ timeout: 25_000 }).then(() => true, () => false);
   const background = { lineUpdated, created: await count(n3) };
 
+  // 5 (run before 4 so the search step stays last): the server refuses the content once.
+  await page.unroute('**/api/captures');
+  const n5 = `Bar refused ${stamp}`;
+  await page.route('**/api/captures', (route) =>
+    route.request().method() === 'POST'
+      ? route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'invalid_input', message: 'This capture is not valid.' }) })
+      : route.continue(),
+  );
+  await bar.fill(n5);
+  await bar.press('Enter');
+  await status.getByText('Your text is back in the field').waitFor({ timeout: 10_000 });
+  const outboxLeft = await page.evaluate(
+    () =>
+      new Promise((res) => {
+        const req = indexedDB.open('brain-capture');
+        req.onsuccess = () => {
+          const c = req.result.transaction('outbox').objectStore('outbox').count();
+          c.onsuccess = () => res(c.result);
+        };
+      }),
+  );
+  const refusedState = { textBack: (await bar.inputValue()) === n5, outboxLeft, created: await count(n5) };
+  await page.unroute('**/api/captures');
+  await bar.press('Enter');
+  await status.getByText('Saved to').waitFor({ timeout: 15_000 });
+  const refused = { ...refusedState, createdAfterRetry: await count(n5) };
+
   // 4
   await page.evaluate(async (q) => {
     const r = await (await fetch(`/api/captures?status=all&q=${encodeURIComponent(q)}`)).json();
@@ -82,11 +109,21 @@ async function main() {
   const doneCard = page.locator('.card').filter({ hasText: n2 });
   const search = { found: await doneCard.waitFor({ timeout: 10_000 }).then(() => true, () => false), labelledDone: /\bdone\b/i.test(await doneCard.locator('.card-meta').innerText().catch(() => '')) };
 
-  const result = { storeFailure, doubleEnter, background, search };
+  const result = { storeFailure, doubleEnter, background, refused, search };
   console.log(JSON.stringify(result));
   await browser.close();
   const ok =
-    storeFailure.textKept && storeFailure.created === 0 && doubleEnter.created === 1 && background.lineUpdated && background.created === 1 && search.found && search.labelledDone;
+    storeFailure.textKept &&
+    storeFailure.created === 0 &&
+    doubleEnter.created === 1 &&
+    background.lineUpdated &&
+    background.created === 1 &&
+    refused.textBack &&
+    refused.outboxLeft === 0 &&
+    refused.created === 0 &&
+    refused.createdAfterRetry === 1 &&
+    search.found &&
+    search.labelledDone;
   process.exitCode = ok ? 0 : 1;
 }
 
