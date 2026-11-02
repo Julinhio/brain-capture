@@ -266,16 +266,25 @@ function CaptureBar() {
   const [value, setValue] = useState('');
   const [status, setStatus] = useState<BarStatus>({ kind: 'idle' });
   const timer = useRef<number>(undefined);
+  // Same guard as the compose sheet: a second Enter before the outbox write finishes would
+  // still see the old text and queue a duplicate.
+  const enqueuing = useRef(false);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     const text = value.trim();
-    if (!text) return;
+    if (!text || enqueuing.current) return;
+    enqueuing.current = true;
+    setValue('');
     // A lone URL (even without https://) is a link; text with a URL inside is a link with a note.
     const bare = /\s/.test(text) ? null : normalizeUrl(text);
     const url = bare ?? extractUrl(text);
-    const item = await enqueue(url ? { kind: 'link', text: bare ? '' : text, url } : { kind: 'text', text });
-    setValue('');
+    let item;
+    try {
+      item = await enqueue(url ? { kind: 'link', text: bare ? '' : text, url } : { kind: 'text', text });
+    } finally {
+      enqueuing.current = false;
+    }
     setStatus({ kind: 'saving' });
     const result = await send(item);
     window.clearTimeout(timer.current);
