@@ -13,7 +13,7 @@ import { MAX_RECORDING_MS, useRecorder, type RecorderError, type Recording } fro
 
 type Mode =
   | { name: 'home' }
-  | { name: 'compose'; kind: 'text' | 'link'; initial?: ComposeValue; replaces?: string }
+  | { name: 'compose'; kind: 'text' | 'link'; initial?: ComposeValue; replaces?: string; storeFailed?: boolean }
   // `unstored`: the device refused to keep it (storage full or blocked). It then lives only in
   // this screen's memory, so nothing may suggest it is safe to walk away.
   | { name: 'saving'; item: OutboxItem; notice?: string; unstored?: boolean }
@@ -133,7 +133,9 @@ export function CaptureHome({ share }: { share?: SharedData } = {}) {
 
   useEffect(() => {
     if (!share) return;
-    const key = `${performance.timeOrigin}:${window.location.search}`;
+    // Keyed on the shared payload itself, not on the URL: the URL changes as soon as /share
+    // is left below, so a replayed effect (StrictMode, re-render) would see a new key.
+    const key = `${performance.timeOrigin}:${JSON.stringify([share.title, share.text, share.url])}`;
     if (handledShare === key) return;
     handledShare = key;
     // Leave /share right away so a reload or "back" does not save it a second time.
@@ -143,7 +145,12 @@ export function CaptureHome({ share }: { share?: SharedData } = {}) {
       setMode({ name: 'compose', kind: 'text' });
       return;
     }
-    void save(shared.kind === 'link' ? { kind: 'link', text: shared.text, url: shared.url } : { kind: 'text', text: shared.text });
+    const value: ComposeValue = shared.kind === 'link' ? { text: shared.text, url: shared.url } : { text: shared.text };
+    // If the device refuses to store it, the URL is already gone: reopen the shared content in
+    // the compose sheet, prefilled and with the storage error, instead of dropping it.
+    save({ kind: shared.kind, ...value }).catch(() =>
+      setMode({ name: 'compose', kind: shared.kind, initial: value, storeFailed: true }),
+    );
   }, [share]);
 
   useEffect(() => {
@@ -333,6 +340,7 @@ export function CaptureHome({ share }: { share?: SharedData } = {}) {
         <ComposeSheet
           kind={mode.kind}
           initial={mode.initial}
+          initialStoreError={mode.storeFailed}
           onClose={goHome}
           onSubmit={(value) => save({ kind: mode.kind, text: value.text, url: value.url }, mode.replaces)}
         />

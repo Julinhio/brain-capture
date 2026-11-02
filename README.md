@@ -56,6 +56,7 @@ Each script drives Chromium (`playwright-core`, pinned to the locally installed 
 | `check-voice-store-failure.mjs` | Same for a recording (sent from memory, honest screen offline); needs Groq |
 | `check-cancel-while-starting.mjs` | Cancel during the microphone prompt starts nothing and releases the mic |
 | `check-voice-browser.mjs` | Real MediaRecorder audio through Groq to "Saved"; needs Groq |
+| `check-share.mjs` | A share opened at `/share` is saved once (run on the Vite dev server to cover StrictMode replays); if storage fails, the shared content reopens prefilled instead of being lost |
 | `check-desktop-bar.mjs` | Desktop quick bar and search: storage failure, double Enter, background save, refusals, line breaks, drawer errors |
 
 ## Deploy (test deployment on Railway)
