@@ -5,6 +5,7 @@ import { hostOf } from '../../shared/text';
 import type { Capture } from '../../shared/types';
 import { useUpdateCapture } from '../lib/useCaptures';
 import { CategoryOptions } from './CategoryPicker';
+import { CategoryIcon } from './CategoryIcon';
 
 const SOURCE_LABEL = { voice: 'Transcription', text: 'Note', link: 'Note' } as const;
 
@@ -110,7 +111,7 @@ export function CaptureView({
             onClick={() => setPickingCategory(true)}
             aria-expanded={false}
           >
-            <span className="cat-dot" aria-hidden="true" />
+            <CategoryIcon category={capture.category} />
             {CATEGORY_LABELS[capture.category]}
             <span className="change">
               Change <ChevronDown size={14} aria-hidden="true" style={{ verticalAlign: '-2px' }} />

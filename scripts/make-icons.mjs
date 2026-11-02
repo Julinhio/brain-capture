@@ -9,9 +9,8 @@ const svg = readFileSync(`${out}/icon.svg`);
 // "maskable" icons are cropped to a circle or squircle by Android: the mark must sit inside
 // the central 80% safe zone, on a full-bleed background.
 const maskable = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" fill="#111214"/>
-  <circle cx="256" cy="256" r="118" fill="#f6f2e6"/>
-  <circle cx="256" cy="256" r="56" fill="#e8b84a"/>
+  <rect width="512" height="512" fill="#0d0c0b"/>
+  ${svg.toString()}
 </svg>`);
 
 await sharp(svg).resize(192, 192).png().toFile(`${out}/icon-192.png`);

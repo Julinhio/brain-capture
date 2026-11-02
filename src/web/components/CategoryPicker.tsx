@@ -1,4 +1,5 @@
 import { CATEGORIES, CATEGORY_LABELS, type Category } from '../../shared/categories';
+import { CategoryIcon } from './CategoryIcon';
 
 export function CategoryOptions({ value, onChange }: { value: Category; onChange: (c: Category) => void }) {
   return (
@@ -12,7 +13,7 @@ export function CategoryOptions({ value, onChange }: { value: Category; onChange
           aria-pressed={c === value}
           onClick={() => onChange(c)}
         >
-          <span className="cat-dot" aria-hidden="true" />
+          <CategoryIcon category={c} />
           {CATEGORY_LABELS[c]}
         </button>
       ))}

@@ -1,10 +1,11 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Download, Search, X } from 'lucide-react';
+import { Archive, ArrowRight, CheckCheck, Download, LayoutGrid, Search, X } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { CATEGORIES, CATEGORY_HINTS, CATEGORY_LABELS, isCategory, type Category } from '../../shared/categories';
 import { extractUrl, hostOf, normalizeUrl } from '../../shared/text';
 import type { Capture, CaptureStatus } from '../../shared/types';
 import { Drawer } from '../components/Drawer';
+import { CategoryIcon } from '../components/CategoryIcon';
 import { discard, enqueue, onSent, send, type OutboxItem } from '../lib/outbox';
 import { navigate, useSearchParam } from '../lib/router';
 import { clockTime, formatDuration, relativeTime } from '../lib/time';
@@ -109,7 +110,7 @@ function sum(counts: Record<Category, number>): number {
 function SideLink({ label, count, active, onClick, cat }: { label: string; count?: number; active: boolean; onClick: () => void; cat?: Category }) {
   return (
     <button type="button" className="side-link" aria-current={active ? 'page' : undefined} onClick={onClick} data-cat={cat}>
-      {cat && <span className="cat-dot" aria-hidden="true" />}
+      {cat ? <CategoryIcon category={cat} /> : label === 'Everything' ? <LayoutGrid size={18} strokeWidth={1.7} aria-hidden="true" /> : label === 'Done' ? <CheckCheck size={18} strokeWidth={1.7} aria-hidden="true" /> : <Archive size={18} strokeWidth={1.7} aria-hidden="true" />}
       <span className="grow">{label}</span>
       {count !== undefined && <span className="mono side-count">{count}</span>}
     </button>
@@ -130,7 +131,7 @@ function Home({ onOpen }: { onOpen: (id: string) => void }) {
     <>
       <header className="desk-hello">
         <p className="mono">{today}</p>
-        <h1>{greeting()}</h1>
+        <h1 className="greeting">{greeting()}</h1>
         <p className="lead">
           {data
             ? data.recent === 0
@@ -146,7 +147,7 @@ function Home({ onOpen }: { onOpen: (id: string) => void }) {
           {CATEGORIES.map((c) => (
             <section key={c} className="section" data-cat={c} aria-labelledby={`sec-${c}`}>
               <header className="section-header">
-                <span className="cat-dot" aria-hidden="true" />
+                <span className="section-icon"><CategoryIcon category={c} /></span>
                 <h2 id={`sec-${c}`}>{CATEGORY_LABELS[c]}</h2>
                 <span className="mono section-count">{data.counts[c]}</span>
                 <span className="section-hint">{CATEGORY_HINTS[c]}</span>
@@ -194,7 +195,7 @@ function ListView({
           ← Everything
         </button>
         <h1 className="list-title" data-cat={category}>
-          {category && <span className="cat-dot" aria-hidden="true" />}
+          {category && <CategoryIcon category={category} />}
           {title}
         </h1>
         {subtitle && <p className="lead">{subtitle}</p>}
@@ -229,7 +230,7 @@ function Card({ capture: c, onOpen, showCategory = false }: { capture: Capture; 
   return (
     <button type="button" className="card" data-cat={c.category} onClick={() => onOpen(c.id)}>
       <span className="card-title">
-        {showCategory && <span className="cat-dot" aria-hidden="true" />}
+        {showCategory && <CategoryIcon category={c.category} />}
         {c.title ?? 'Untitled capture'}
       </span>
       {showPreview && <span className="card-preview">{c.text}</span>}
@@ -415,7 +416,7 @@ function CaptureBar() {
           <>
             Saved to{' '}
             <span data-cat={status.capture.category} className="inline-cat">
-              <span className="cat-dot" aria-hidden="true" /> {CATEGORY_LABELS[status.capture.category]}
+              <CategoryIcon category={status.capture.category} /> {CATEGORY_LABELS[status.capture.category]}
             </span>
           </>
         )}
