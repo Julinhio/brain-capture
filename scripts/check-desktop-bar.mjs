@@ -99,6 +99,49 @@ async function main() {
   await status.getByText('Saved to').waitFor({ timeout: 15_000 });
   const refused = { ...refusedState, createdAfterRetry: await count(n5) };
 
+  // 6: refused while a newer draft already occupies the field -> nothing lost or overwritten.
+  const n6 = `Bar refused busy ${stamp}`;
+  const n6b = `Bar newer draft ${stamp}`;
+  let refuseOnce = true;
+  await page.route('**/api/captures', async (route) => {
+    if (route.request().method() !== 'POST' || !refuseOnce) return route.continue();
+    refuseOnce = false;
+    await new Promise((r) => setTimeout(r, 1500));
+    await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'invalid_input', message: 'This capture is not valid.' }) });
+  });
+  await bar.fill(n6);
+  await bar.press('Enter');
+  await page.waitForTimeout(300);
+  await bar.fill(n6b);
+  await status.getByText('The refused text is kept').waitFor({ timeout: 10_000 });
+  const outboxCount = () =>
+    page.evaluate(
+      () =>
+        new Promise((res) => {
+          const req = indexedDB.open('brain-capture');
+          req.onsuccess = () => {
+            const c = req.result.transaction('outbox').objectStore('outbox').count();
+            c.onsuccess = () => res(c.result);
+          };
+        }),
+    );
+  const busyState = {
+    draftKept: (await bar.inputValue()) === n6b,
+    putBackDisabled: await page.getByRole('button', { name: 'Put it back' }).isDisabled(),
+    refusedKeptLocally: (await outboxCount()) === 1,
+  };
+  await bar.press('Enter');
+  await status.getByText('Saved to').waitFor({ timeout: 15_000 });
+  const busy = {
+    ...busyState,
+    refusedBackInField: (await bar.inputValue()) === n6,
+    outboxAfter: await outboxCount(),
+    draftCreated: await count(n6b),
+    refusedCreated: await count(n6),
+  };
+  await page.unroute('**/api/captures');
+  await bar.fill('');
+
   // 4
   await page.evaluate(async (q) => {
     const r = await (await fetch(`/api/captures?status=all&q=${encodeURIComponent(q)}`)).json();
@@ -109,7 +152,7 @@ async function main() {
   const doneCard = page.locator('.card').filter({ hasText: n2 });
   const search = { found: await doneCard.waitFor({ timeout: 10_000 }).then(() => true, () => false), labelledDone: /\bdone\b/i.test(await doneCard.locator('.card-meta').innerText().catch(() => '')) };
 
-  const result = { storeFailure, doubleEnter, background, refused, search };
+  const result = { storeFailure, doubleEnter, background, refused, busy, search };
   console.log(JSON.stringify(result));
   await browser.close();
   const ok =
@@ -122,6 +165,13 @@ async function main() {
     refused.outboxLeft === 0 &&
     refused.created === 0 &&
     refused.createdAfterRetry === 1 &&
+    busy.draftKept &&
+    busy.putBackDisabled &&
+    busy.refusedKeptLocally &&
+    busy.refusedBackInField &&
+    busy.outboxAfter === 0 &&
+    busy.draftCreated === 1 &&
+    busy.refusedCreated === 0 &&
     search.found &&
     search.labelledDone;
   process.exitCode = ok ? 0 : 1;

@@ -265,13 +265,18 @@ type BarStatus =
   | { kind: 'saving' }
   | { kind: 'saved'; capture: Capture }
   | { kind: 'queued'; message: string }
-  | { kind: 'refused'; message: string }
+  | { kind: 'refused'; message: string; text: string; clientId: string; restored: boolean }
   | { kind: 'store-failed' };
 
 /** Desktop quick capture. A pasted URL becomes a link capture; anything else is a note. */
 function CaptureBar() {
   const queryClient = useQueryClient();
   const [value, setValue] = useState('');
+  // Latest field content, readable after an await (the submit closure holds a stale copy).
+  const valueRef = useRef('');
+  valueRef.current = value;
+  // A refused text still waiting for the field to be free.
+  const pendingRefusal = useRef<Extract<BarStatus, { kind: 'refused' }> | null>(null);
   const [status, setStatus] = useState<BarStatus>({ kind: 'idle' });
   const timer = useRef<number>(undefined);
   // Same guard as the compose sheet: a second Enter before the outbox write finishes would
@@ -317,7 +322,16 @@ function CaptureBar() {
       enqueuing.current = false;
     }
     // Stored on the device: only now clear the field, unless something new was typed meanwhile.
-    setValue((current) => (current.trim() === text ? '' : current));
+    // A refused text waiting for a free field takes the freed place, so it never ends up out
+    // of reach once its status line is replaced by this new capture's.
+    const waiting = pendingRefusal.current;
+    if (waiting && valueRef.current.trim() === text) {
+      pendingRefusal.current = null;
+      setValue(waiting.text);
+      await discard(waiting.clientId).catch(() => undefined);
+    } else {
+      setValue((current) => (current.trim() === text ? '' : current));
+    }
     followed.current = item.clientId;
     setStatus({ kind: 'saving' });
     const result = await send(item);
@@ -329,13 +343,27 @@ function CaptureBar() {
       setStatus({ kind: 'queued', message: `${result.message} Kept on this device, it is sent again automatically.` });
     } else {
       // The server refused the content itself, so nothing exists on the server and retrying
-      // as is cannot work. Desktop has no outbox screen: put the text back in the field to be
-      // fixed, and drop the blocked copy instead of leaving it stuck out of reach.
+      // as is cannot work. Desktop has no outbox screen, so the text goes back to the field to
+      // be fixed. If a newer draft is already there, nothing is overwritten or dropped: the
+      // refused text stays in the outbox until "Put it back" is used on an empty field.
       window.clearTimeout(timer.current);
-      await discard(item.clientId).catch(() => undefined);
-      setValue((current) => (current.trim() ? current : text));
-      setStatus({ kind: 'refused', message: result.message });
+      const fieldFree = !valueRef.current.trim();
+      if (fieldFree) {
+        setValue(text);
+        await discard(item.clientId).catch(() => undefined);
+      }
+      const refused = { kind: 'refused' as const, message: result.message, text, clientId: item.clientId, restored: fieldFree };
+      pendingRefusal.current = fieldFree ? null : refused;
+      setStatus(refused);
     }
+  }
+
+  async function putBack(refused: Extract<BarStatus, { kind: 'refused' }>) {
+    if (valueRef.current.trim()) return;
+    pendingRefusal.current = null;
+    setValue(refused.text);
+    await discard(refused.clientId).catch(() => undefined);
+    setStatus({ ...refused, restored: true });
   }
 
   return (
@@ -366,8 +394,23 @@ function CaptureBar() {
           </>
         )}
         {status.kind === 'queued' && <span className="field-error">Not saved yet. {status.message}</span>}
-        {status.kind === 'refused' && (
+        {status.kind === 'refused' && status.restored && (
           <span className="field-error">Not saved. {status.message} Your text is back in the field: fix it and press Enter.</span>
+        )}
+        {status.kind === 'refused' && !status.restored && (
+          <span className="field-error">
+            Not saved. {status.message} The refused text is kept.{' '}
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => void putBack(status)}
+              disabled={Boolean(value.trim())}
+              title={value.trim() ? 'Send or clear the current text first' : undefined}
+            >
+              Put it back
+            </button>
+            {value.trim() && ' Send or clear the current text first.'}
+          </span>
         )}
         {status.kind === 'store-failed' && (
           <span className="field-error">This device could not store it, so nothing was saved. Your text is still in the field.</span>
