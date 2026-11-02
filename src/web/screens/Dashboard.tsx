@@ -9,6 +9,7 @@ import { discard, enqueue, onSent, send, type OutboxItem } from '../lib/outbox';
 import { navigate, useSearchParam } from '../lib/router';
 import { clockTime, formatDuration, relativeTime } from '../lib/time';
 import { useCapturePages, useOverview } from '../lib/useCaptures';
+import { versionLabel } from '../version';
 
 type View = { kind: 'home' } | { kind: 'category'; category: Category } | { kind: 'status'; status: Exclude<CaptureStatus, 'open'> };
 
@@ -70,6 +71,7 @@ export function Dashboard() {
           <span className={`rec-dot ${overview.isError ? 'off' : ''}`} aria-hidden="true" />
           {overview.isError ? 'Offline. Showing what was loaded.' : overview.dataUpdatedAt ? `Updated ${clockTime(new Date(overview.dataUpdatedAt).toISOString())}` : 'Loading…'}
         </p>
+        <p className="mono app-version">{versionLabel()}</p>
       </aside>
 
       <main className="desk-main">

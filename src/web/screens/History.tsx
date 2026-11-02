@@ -6,6 +6,7 @@ import { CaptureView } from '../components/CaptureView';
 import { navigate, useSearchParam } from '../lib/router';
 import { relativeTime } from '../lib/time';
 import { useCapture, useCapturePages, useUpdateCapture } from '../lib/useCaptures';
+import { versionLabel } from '../version';
 import { TopBar } from './CaptureHome';
 
 const KIND_LABEL = { voice: 'Voice', text: 'Note', link: 'Link' } as const;
@@ -70,6 +71,7 @@ function HistoryList() {
           {pages.isFetchingNextPage ? 'Loading…' : 'Load older'}
         </button>
       )}
+      <p className="mono app-version">{versionLabel()}</p>
     </main>
   );
 }

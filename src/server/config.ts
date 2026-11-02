@@ -7,6 +7,8 @@ export interface Config {
   classifyModel: string;
   ownerEmail: string | null;
   ownerPasswordHash: string | null;
+  /** Commit of the running build, set by the deploy (APP_VERSION); "dev" otherwise. */
+  appVersion: string;
   /** Origins allowed to send state-changing requests; empty means "same host as the request". */
   allowedOrigins: string[];
 }
@@ -37,6 +39,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     classifyModel: env.GROQ_CLASSIFY_MODEL?.trim() || 'openai/gpt-oss-20b',
     ownerEmail,
     ownerPasswordHash,
+    appVersion: env.APP_VERSION?.trim() || 'dev',
     allowedOrigins: (env.ALLOWED_ORIGINS ?? '')
       .split(',')
       .map((o) => o.trim())

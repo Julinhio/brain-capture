@@ -87,7 +87,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     }
   });
 
-  app.get('/api/health', async () => ({ ok: true }));
+  // The version lets a deployment be checked from outside without signing in.
+  app.get('/api/health', async () => ({ ok: true, version: config.appVersion }));
 
   const loginLimiter = new RateLimiter(10, 15 * 60 * 1000);
   app.post('/api/auth/login', async (req, reply) => {

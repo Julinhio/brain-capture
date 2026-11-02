@@ -1,10 +1,28 @@
+import { execSync } from 'node:child_process';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+// Shown discreetly in the app so a deployment can be checked without creating a capture.
+// Railway builds have no .git: the deploy sets APP_VERSION to the commit being uploaded.
+function appVersion(): string {
+  if (process.env.APP_VERSION) return process.env.APP_VERSION;
+  try {
+    const sha = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    const dirty = execSync('git status --porcelain', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    return dirty ? `${sha}-dirty` : sha;
+  } catch {
+    return 'dev';
+  }
+}
+
 export default defineConfig({
   root: 'src/web',
   publicDir: 'public',
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion()),
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  },
   plugins: [
     react(),
     VitePWA({
