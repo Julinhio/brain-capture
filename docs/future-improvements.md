@@ -17,4 +17,4 @@ Points connus, acceptés pour la version actuelle, à reprendre plus tard. Chaqu
 
 - Les nouveaux essais d'envoi ne tournent que lorsque l'app est ouverte ; rien en arrière-plan.
 - Effacer les données du site sur le téléphone supprime les captures qui attendent encore d'être envoyées.
-- Sauvegarde et restauration de PostgreSQL : procédure à documenter (outil, fréquence, coûts, limites).
+- Sauvegardes manuelles tant qu'aucune tâche planifiée ni sauvegarde Railway n'est activée (voir `docs/backup-restore.md`).
