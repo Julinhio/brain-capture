@@ -5,16 +5,14 @@ import { api, deviceLabel, RequestError } from './api';
 /**
  * Every capture is written here before the first upload attempt and removed only once the
  * server has confirmed it is stored. The clientId travels with each retry, so the server
- * stores it once however many times it is sent.
+ * stores it once however many times it is sent. For voice, this is also the only place the
+ * audio lives: it is deleted with the item, i.e. right after a confirmed save or a discard.
  *
  * Limits, on purpose: retries run while the app is open (on launch, when the connection
  * comes back, or on "Retry now"). If the browser clears site data, pending items go with it.
  */
-export interface OutboxItem {
+interface OutboxBase {
   clientId: string;
-  kind: 'text' | 'link';
-  text: string;
-  url?: string;
   device: string;
   createdAt: number;
   attempts: number;
@@ -22,6 +20,14 @@ export interface OutboxItem {
   /** The server refused the content itself; automatic retries skip it until edited or discarded. */
   blocked?: boolean;
 }
+
+export type OutboxItem =
+  | (OutboxBase & { kind: 'text' | 'link'; text: string; url?: string })
+  | (OutboxBase & { kind: 'voice'; audio: Blob; mimeType: string; durationMs: number });
+
+export type NewOutboxItem =
+  | { kind: 'text' | 'link'; text: string; url?: string }
+  | { kind: 'voice'; audio: Blob; mimeType: string; durationMs: number };
 
 interface OutboxDb extends DBSchema {
   outbox: { key: string; value: OutboxItem };
@@ -37,17 +43,15 @@ function db(): Promise<IDBPDatabase<OutboxDb>> {
   return dbPromise;
 }
 
-export async function enqueue(input: { kind: 'text' | 'link'; text: string; url?: string }): Promise<OutboxItem> {
-  const item: OutboxItem = {
+export async function enqueue(input: NewOutboxItem): Promise<OutboxItem> {
+  const base: OutboxBase = {
     clientId: crypto.randomUUID(),
-    kind: input.kind,
-    text: input.text,
-    url: input.url,
     device: deviceLabel(),
     createdAt: Date.now(),
     attempts: 0,
     lastError: null,
   };
+  const item: OutboxItem = { ...base, ...input };
   await (await db()).put('outbox', item);
   notify();
   return item;
@@ -65,9 +69,22 @@ export async function discard(clientId: string): Promise<void> {
 
 export type SendResult =
   | { ok: true; capture: Capture }
-  | { ok: false; retryable: boolean; message: string };
+  | { ok: false; retryable: boolean; message: string; code: string };
 
 const inFlight = new Map<string, Promise<SendResult>>();
+
+function upload(item: OutboxItem): Promise<Capture> {
+  if (item.kind === 'voice') {
+    return api.createVoiceCapture({
+      clientId: item.clientId,
+      audio: item.audio,
+      mimeType: item.mimeType,
+      durationMs: item.durationMs,
+      device: item.device,
+    });
+  }
+  return api.createCapture({ clientId: item.clientId, kind: item.kind, text: item.text, url: item.url, device: item.device });
+}
 
 /** Sends one item. Concurrent calls for the same item share a single request. */
 export function send(item: OutboxItem): Promise<SendResult> {
@@ -75,13 +92,7 @@ export function send(item: OutboxItem): Promise<SendResult> {
   if (running) return running;
   const attempt = (async (): Promise<SendResult> => {
     try {
-      const capture = await api.createCapture({
-        clientId: item.clientId,
-        kind: item.kind,
-        text: item.text,
-        url: item.url,
-        device: item.device,
-      });
+      const capture = await upload(item);
       await (await db()).delete('outbox', item.clientId);
       return { ok: true, capture };
     } catch (err) {
@@ -93,7 +104,7 @@ export function send(item: OutboxItem): Promise<SendResult> {
         await tx.store.put({ ...current, attempts: current.attempts + 1, lastError: e.message, blocked: !e.retryable });
       }
       await tx.done;
-      return { ok: false, retryable: e.retryable, message: e.message };
+      return { ok: false, retryable: e.retryable, message: e.message, code: e.code };
     } finally {
       inFlight.delete(item.clientId);
       notify();

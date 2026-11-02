@@ -65,9 +65,26 @@ export const api = {
   getCapture: (id: string) => request<{ capture: Capture }>('GET', `/api/captures/${id}`).then((r) => r.capture),
   createCapture: (input: { clientId: string; kind: 'text' | 'link'; text: string; url?: string; device: string }) =>
     request<{ capture: Capture; created: boolean }>('POST', '/api/captures', input).then((r) => r.capture),
+  createVoiceCapture: (input: { clientId: string; audio: Blob; mimeType: string; durationMs: number; device: string }) => {
+    const form = new FormData();
+    // Fields first: the server reads them before the file stream.
+    form.append('clientId', input.clientId);
+    form.append('durationMs', String(Math.round(input.durationMs)));
+    form.append('device', input.device);
+    form.append('audio', input.audio, `recording.${extensionFor(input.mimeType)}`);
+    return request<{ capture: Capture; created: boolean }>('POST', '/api/captures/voice', form).then((r) => r.capture);
+  },
   updateCapture: (id: string, patch: { title?: string; text?: string; category?: Category; status?: CaptureStatus }) =>
     request<{ capture: Capture }>('PATCH', `/api/captures/${id}`, patch).then((r) => r.capture),
 };
+
+// Whisper picks the decoder from the file extension, so it has to match the container.
+function extensionFor(mimeType: string): string {
+  if (mimeType.includes('mp4') || mimeType.includes('aac')) return 'm4a';
+  if (mimeType.includes('ogg')) return 'ogg';
+  if (mimeType.includes('wav')) return 'wav';
+  return 'webm';
+}
 
 export function deviceLabel(): string {
   const ua = navigator.userAgent;

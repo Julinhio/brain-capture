@@ -646,6 +646,101 @@ a {
   flex: 1;
 }
 
+.step-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--surface-3);
+  flex: none;
+}
+
+/* ---------- Recording ---------- */
+.recording {
+  justify-content: space-between;
+}
+.recording-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 8px 0 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--record);
+}
+.rec-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--record);
+  flex: none;
+}
+.recording-badge .rec-dot {
+  animation: rec-pulse 1.6s ease-in-out infinite;
+}
+@keyframes rec-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+.recording-center {
+  display: grid;
+  justify-items: center;
+  gap: 24px;
+}
+.recording-timer {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 72px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.wave {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 64px;
+}
+.wave span {
+  width: 4px;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--record);
+  opacity: 0.9;
+  transform-origin: center;
+  transition: transform 80ms linear;
+}
+.recording-controls {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding-bottom: 8px;
+}
+.recording-controls .capture-action {
+  justify-self: center;
+}
+.stop-action .icon-btn {
+  width: 104px;
+  height: 104px;
+  border: 0;
+  background: var(--record);
+  color: #fff;
+  box-shadow: 0 0 0 12px rgba(229, 72, 77, 0.16);
+}
+.stop-action {
+  color: var(--text);
+  font-weight: 600;
+}
+.recording-max {
+  justify-self: center;
+  text-transform: none;
+}
+
 /* ---------- Login ---------- */
 .login {
   min-height: 100%;
@@ -689,5 +784,8 @@ a {
   }
   .spinner {
     animation-duration: 1.4s !important;
+  }
+  .wave span {
+    transition: none !important;
   }
 }

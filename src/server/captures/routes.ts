@@ -5,7 +5,16 @@ import { extractUrl, normalizeUrl, removeLinkFromNote } from '../../shared/text.
 import type { CaptureStatus } from '../../shared/types.js';
 import type { AppDeps } from '../app.js';
 import { sendError } from '../http.js';
-import { classifyCapture, decodeCursor, getCapture, insertCapture, listCaptures, toCapture, updateCapture } from './service.js';
+import {
+  classifyCapture,
+  decodeCursor,
+  findByClientId,
+  getCapture,
+  insertCapture,
+  listCaptures,
+  toCapture,
+  updateCapture,
+} from './service.js';
 
 const MAX_TEXT = 20_000;
 
@@ -34,6 +43,16 @@ const listQuery = z.object({
 });
 
 const idParams = z.object({ id: z.uuid() });
+
+// Groq accepts 25 MB on the free tier; ten minutes of Opus is around 1 to 2 MB.
+export const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
+export const MAX_RECORDING_MS = 10 * 60 * 1000;
+
+const voiceSchema = z.object({
+  clientId: z.uuid(),
+  durationMs: z.coerce.number().int().min(0).max(MAX_RECORDING_MS + 5_000),
+  device: z.string().max(40).optional(),
+});
 
 export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps): void {
   app.get('/api/captures', async (req, reply) => {
@@ -83,6 +102,57 @@ export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps)
     });
     // The row is committed before the model is asked anything: a classification failure
     // can only leave the capture under Other, never lose it.
+    const final = row.classificationStatus === 'done' ? row : await classifyCapture(db, ai, row);
+    return reply.code(created ? 201 : 200).send({ capture: toCapture(final), created });
+  });
+
+  /**
+   * Voice: the audio is read into memory, sent to Groq and dropped; nothing is written to
+   * disk or kept after the response. The phone keeps its own copy until it gets a 2xx.
+   */
+  app.post('/api/captures/voice', async (req, reply) => {
+    if (!req.isMultipart()) return sendError(reply, 400, 'invalid_input', 'Expected an audio upload.');
+    const fields: Record<string, string> = {};
+    let audio: { buffer: Buffer; filename: string; mimeType: string } | null = null;
+    for await (const part of req.parts({ limits: { fileSize: MAX_AUDIO_BYTES, files: 1, fields: 10 } })) {
+      if (part.type === 'file') {
+        const buffer = await part.toBuffer();
+        if (part.file.truncated) return sendError(reply, 413, 'audio_too_large', 'This recording is too long to send.');
+        audio = { buffer, filename: part.filename || 'recording.webm', mimeType: part.mimetype || 'audio/webm' };
+      } else {
+        fields[part.fieldname] = String(part.value);
+      }
+    }
+    const parsed = voiceSchema.safeParse(fields);
+    if (!parsed.success) return sendError(reply, 400, 'invalid_input', 'This recording is not valid.');
+    const { clientId, durationMs, device } = parsed.data;
+
+    // A retry of an upload that already went through: no second transcription, no duplicate.
+    const existing = await findByClientId(db, req.user!.id, clientId);
+    if (existing) return reply.code(200).send({ capture: toCapture(existing), created: false });
+
+    if (!audio || audio.buffer.length === 0) return sendError(reply, 400, 'invalid_input', 'The recording is empty.');
+    if (!/^(audio|video)\//.test(audio.mimeType)) return sendError(reply, 400, 'invalid_input', 'Unsupported audio format.');
+
+    let transcript: string;
+    try {
+      transcript = (await ai.transcribe({ audio: audio.buffer, filename: audio.filename, mimeType: audio.mimeType })).text;
+    } catch (err) {
+      req.log.warn({ err: (err as Error).message }, 'transcription failed');
+      return sendError(reply, 503, 'transcription_failed', 'Transcription is unavailable right now.');
+    }
+    if (!transcript.trim()) {
+      return sendError(reply, 422, 'empty_transcription', 'No speech was detected in this recording.');
+    }
+
+    const { row, created } = await insertCapture(db, req.user!.id, {
+      clientId,
+      kind: 'voice',
+      text: transcript.trim(),
+      url: null,
+      durationMs,
+      device: device ?? null,
+    });
     const final = row.classificationStatus === 'done' ? row : await classifyCapture(db, ai, row);
     return reply.code(created ? 201 : 200).send({ capture: toCapture(final), created });
   });

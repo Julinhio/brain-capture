@@ -16,7 +16,10 @@ export class FakeAi implements Ai {
   nextClassification: ClassifyResult = { category: 'jobs', title: 'Fake title' };
   transcript = 'Fake transcript';
 
+  transcribeCalls = 0;
+
   async transcribe() {
+    this.transcribeCalls += 1;
     if (this.failTranscribe) throw new AiUnavailableError('transcription down');
     return { text: this.transcript };
   }
@@ -72,4 +75,16 @@ export async function login(app: FastifyInstance, email: string): Promise<string
 
 export function newClientId(): string {
   return randomUUID();
+}
+
+/** Serializes a multipart body the way a browser FormData upload would. */
+export async function voicePayload(fields: Record<string, string>, audio: Uint8Array | null, type = 'audio/webm') {
+  const form = new FormData();
+  for (const [k, v] of Object.entries(fields)) form.append(k, v);
+  if (audio) form.append('audio', new Blob([audio], { type }), 'recording.webm');
+  const request = new Request('http://local/upload', { method: 'POST', body: form });
+  return {
+    payload: Buffer.from(await request.arrayBuffer()),
+    headers: { 'content-type': request.headers.get('content-type')! },
+  };
 }
