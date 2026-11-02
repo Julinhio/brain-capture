@@ -391,12 +391,22 @@ function SavingView({ mode, onAnother }: { mode: Extract<Mode, { name: 'saving' 
         </div>
         {mode.notice && <p className="hint">{mode.notice}</p>}
         <div className="status-footer">
-          <button type="button" className="btn btn-block" onClick={onAnother}>
-            Start another capture
-          </button>
-          <p className="hint" style={{ textAlign: 'center', margin: 0 }}>
-            This one keeps saving in the background.
-          </p>
+          {mode.unstored ? (
+            // Not on the device: if this upload fails after the screen is left, nothing is left
+            // to retry. Keep the person here until it is saved or the failure is shown.
+            <p className="hint" style={{ textAlign: 'center', margin: 0 }}>
+              This device could not keep it. Stay on this screen until it is saved.
+            </p>
+          ) : (
+            <>
+              <button type="button" className="btn btn-block" onClick={onAnother}>
+                Start another capture
+              </button>
+              <p className="hint" style={{ textAlign: 'center', margin: 0 }}>
+                This one keeps saving in the background.
+              </p>
+            </>
+          )}
         </div>
       </div>
     </main>

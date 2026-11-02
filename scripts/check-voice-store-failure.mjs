@@ -41,10 +41,19 @@ async function main() {
   };
   await page.evaluate(() => (window.__failStore = true));
 
-  // A: storage refused, network fine -> sent straight from memory.
+  // A: storage refused, network fine (but slow) -> sent straight from memory, and the
+  // "Saving…" screen must not offer a way out while the recording exists nowhere else.
   const beforeA = await countAll();
+  await page.route('**/api/captures/voice', async (route) => {
+    await new Promise((r) => setTimeout(r, 3000));
+    await route.continue();
+  });
   await record();
+  await page.getByText('Saving…').waitFor();
+  const savingOffersWayOut = await page.getByRole('button', { name: 'Start another capture' }).isVisible();
+  const savingAsksToStay = await page.getByText('Stay on this screen until it is saved.').isVisible();
   const savedA = await page.locator('.saved-head').waitFor({ timeout: 30_000 }).then(() => true, () => false);
+  await page.unroute('**/api/captures/voice');
   const createdA = (await countAll()) - beforeA;
   await page.getByRole('button', { name: 'Done' }).click();
 
@@ -60,10 +69,12 @@ async function main() {
   const savedB = await page.locator('.saved-head').waitFor({ timeout: 30_000 }).then(() => true, () => false);
   const createdB = (await countAll()) - beforeB;
 
-  const result = { savedA, createdA, warnsOnlyHere, offersKeepForLater, savedB, createdB };
+  const result = { savingOffersWayOut, savingAsksToStay, savedA, createdA, warnsOnlyHere, offersKeepForLater, savedB, createdB };
   console.log(JSON.stringify(result));
   await browser.close();
-  process.exitCode = savedA && createdA === 1 && warnsOnlyHere && !offersKeepForLater && savedB && createdB === 1 ? 0 : 1;
+  const ok =
+    !savingOffersWayOut && savingAsksToStay && savedA && createdA === 1 && warnsOnlyHere && !offersKeepForLater && savedB && createdB === 1;
+  process.exitCode = ok ? 0 : 1;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
