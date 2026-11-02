@@ -40,7 +40,10 @@ node scripts/check-restore.mjs http://localhost:3101 <fichier.json>
 
 ## Vérification faite le 2026-11-02
 
-Sauvegarde réelle de la production (lecture seule), restaurée dans une instance locale vierge (PGlite, base séparée) : résultat dans la description de la PR qui ajoute cette procédure.
+- Version en production : `e3e21ab`.
+- Sauvegarde réelle de la production, en lecture seule : 8 captures, 4 794 octets, sha256 `86f1559f…f81e07b5`, fichier `brain-capture-2026-11-02T16-23-55-504Z.json` dans le dossier de sauvegardes.
+- Restauration dans une instance locale vierge (PGlite, base séparée, port 3101) avec `check-restore.mjs` : base vide au départ, 8 captures insérées, export identique champ par champ, second import 0 insérée et 8 ignorées.
+- Données de production inchangées : 8 captures avant et après le déploiement et la sauvegarde.
 
 ## Coûts
 
