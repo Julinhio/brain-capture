@@ -5,14 +5,15 @@ import type { Capture } from '../../shared/types';
 import { CaptureView } from '../components/CaptureView';
 import { ComposeSheet, type ComposeValue } from '../components/ComposeSheet';
 import { discard, enqueue, flush, makeItem, onSent, pendingItems, send, subscribe, type NewOutboxItem, type OutboxItem } from '../lib/outbox';
-import { navigate } from '../lib/router';
+import { sharedToCapture, type SharedData } from '../../shared/share';
+import { navigate, useSearchParam } from '../lib/router';
 import { clockTime, formatDuration, relativeTime } from '../lib/time';
 import { useRecentCaptures } from '../lib/useCaptures';
 import { MAX_RECORDING_MS, useRecorder, type RecorderError, type Recording } from '../lib/useRecorder';
 
 type Mode =
   | { name: 'home' }
-  | { name: 'compose'; kind: 'text' | 'link'; initial?: ComposeValue; replaces?: string }
+  | { name: 'compose'; kind: 'text' | 'link'; initial?: ComposeValue; replaces?: string; storeFailed?: boolean }
   // `unstored`: the device refused to keep it (storage full or blocked). It then lives only in
   // this screen's memory, so nothing may suggest it is safe to walk away.
   | { name: 'saving'; item: OutboxItem; notice?: string; unstored?: boolean }
@@ -56,9 +57,15 @@ function usePendingItems(): OutboxItem[] {
   return items;
 }
 
-export function CaptureHome() {
+// A share opens /share once per page load; StrictMode and re-renders must not save it twice.
+let handledShare: string | null = null;
+
+export function CaptureHome({ share }: { share?: SharedData } = {}) {
   const queryClient = useQueryClient();
-  const [mode, setMode] = useState<Mode>({ name: 'home' });
+  const composeParam = useSearchParam('compose');
+  const [mode, setMode] = useState<Mode>(() =>
+    composeParam === 'text' || composeParam === 'link' ? { name: 'compose', kind: composeParam } : { name: 'home' },
+  );
   const recent = useRecentCaptures(3);
   const pending = usePendingItems();
   const blocked = pending.find((i) => i.blocked);
@@ -123,6 +130,33 @@ export function CaptureHome() {
     followed.current = null;
     setMode({ name: 'home' });
   }
+
+  useEffect(() => {
+    if (!share) return;
+    // Keyed on the shared payload itself, not on the URL: the URL changes as soon as /share
+    // is left below, so a replayed effect (StrictMode, re-render) would see a new key.
+    const key = `${performance.timeOrigin}:${JSON.stringify([share.title, share.text, share.url])}`;
+    if (handledShare === key) return;
+    handledShare = key;
+    // Leave /share right away so a reload or "back" does not save it a second time. /capture,
+    // not /: on desktop "/" is the dashboard, which would unmount the saving and recovery screens.
+    navigate('/capture', { replace: true });
+    const shared = sharedToCapture(share);
+    if (!shared) {
+      setMode({ name: 'compose', kind: 'text' });
+      return;
+    }
+    const value: ComposeValue = shared.kind === 'link' ? { text: shared.text, url: shared.url } : { text: shared.text };
+    // If the device refuses to store it, the URL is already gone: reopen the shared content in
+    // the compose sheet, prefilled and with the storage error, instead of dropping it.
+    save({ kind: shared.kind, ...value }).catch(() =>
+      setMode({ name: 'compose', kind: shared.kind, initial: value, storeFailed: true }),
+    );
+  }, [share]);
+
+  useEffect(() => {
+    if (composeParam) navigate('/', { replace: true });
+  }, [composeParam]);
 
   function startRecording() {
     followed.current = null;
@@ -307,6 +341,7 @@ export function CaptureHome() {
         <ComposeSheet
           kind={mode.kind}
           initial={mode.initial}
+          initialStoreError={mode.storeFailed}
           onClose={goHome}
           onSubmit={(value) => save({ kind: mode.kind, text: value.text, url: value.url }, mode.replaces)}
         />

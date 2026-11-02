@@ -30,6 +30,8 @@ describe('private routes', () => {
   it('health stays public', async () => {
     const res = await ctx.app.inject({ method: 'GET', url: '/api/health' });
     expect(res.statusCode).toBe(200);
+    // No APP_VERSION in tests: the deploy sets it to the uploaded commit.
+    expect(res.json()).toEqual({ ok: true, version: 'dev' });
   });
 });
 

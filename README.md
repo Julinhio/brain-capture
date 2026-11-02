@@ -41,7 +41,35 @@ npx tsx --env-file=<file with GROQ_API_KEY> scripts/eval-classify.ts
 3. Only then is the model asked for a category and title. If that fails, the capture stays under Other and a server-side sweep retries up to three times. A category or title set by hand is never overwritten.
 4. The device removes its local copy only after the server confirms. "Saved" is never shown before that.
 
-Known limits: retries run while the app is open (launch, connection back, "Retry now"). Clearing the browser's site data removes captures still waiting on the device.
+Known limits: retries run while the app is open (on launch, when the connection comes back, then with backoff up to every 30 s). Clearing the browser's site data removes captures still waiting on the device. Accepted limits and later work: `docs/future-improvements.md`.
+
+## Browser checks
+
+Each script drives Chromium (`playwright-core`, pinned to the locally installed revision) against a running production build and the local test account from `.env`. Each exits non-zero on failure:
+
+| Script | What it proves |
+| --- | --- |
+| `check-pwa.mjs` | Service worker active, app opens offline, offline capture sent once when back online |
+| `check-auto-retry.mjs --path stay\|keep --kind text\|voice` | Network back but failing a few seconds: capture sent once, waiting screen moves to "Saved" by itself |
+| `check-double-submit.mjs` | A double tap on Save creates one capture |
+| `check-local-write-failure.mjs` | Device storage refusing the write: sheet unlocks, text kept, one capture on retry |
+| `check-voice-store-failure.mjs` | Same for a recording (sent from memory, honest screen offline); needs Groq |
+| `check-cancel-while-starting.mjs` | Cancel during the microphone prompt starts nothing and releases the mic |
+| `check-voice-browser.mjs` | Real MediaRecorder audio through Groq to "Saved"; needs Groq |
+| `check-share.mjs` | A share opened at `/share` is saved once (run on the Vite dev server to cover StrictMode replays); if storage fails, the shared content reopens prefilled instead of being lost |
+| `check-desktop-bar.mjs` | Desktop quick bar and search: storage failure, double Enter, background save, refusals, line breaks, drawer errors |
+
+## Deploy (test deployment on Railway)
+
+One app service and one PostgreSQL in the personal project `brain-capture`. Deploys are manual uploads of a clean checkout, marked with the commit so the running version can be checked without creating a capture:
+
+```bash
+railway variable set APP_VERSION=$(git rev-parse --short HEAD) --service brain-capture --skip-deploys
+railway up --service brain-capture --ci
+curl https://brain-capture-production-8fa2.up.railway.app/api/health   # {"ok":true,"version":"<commit>"}
+```
+
+The same version shows at the bottom of History (phone) and of the desktop sidebar. Migrations run at boot and only add; existing captures are kept across deploys.
 
 ## Configuration
 
@@ -52,5 +80,7 @@ Known limits: retries run while the app is open (launch, connection back, "Retry
 | `GROQ_API_KEY` | Railway | Transcription and sorting |
 | `ALLOWED_ORIGINS` | local `.env` only | Extra origins allowed to send state-changing requests (the Vite dev proxy) |
 | `GROQ_TRANSCRIBE_MODEL`, `GROQ_CLASSIFY_MODEL` | optional | Model overrides |
+| `APP_VERSION` | Railway, set by the deploy | Commit shown in the app and returned by `/api/health` |
+| `NODE_ENV=production`, `NPM_CONFIG_INCLUDE=dev` | Railway | Production mode at runtime; build tools still installed for the build |
 
 Secrets stay out of the repository: production values in Railway variables, local ones in `.env` (gitignored).

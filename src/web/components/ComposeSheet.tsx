@@ -10,11 +10,14 @@ export interface ComposeValue {
 export function ComposeSheet({
   kind,
   initial,
+  initialStoreError = false,
   onSubmit,
   onClose,
 }: {
   kind: 'text' | 'link';
   initial?: ComposeValue;
+  /** Opened after a failed device write elsewhere (e.g. a share): show the error from the start. */
+  initialStoreError?: boolean;
   /** Rejects only when the capture could not be stored on the device: nothing was saved. */
   onSubmit: (value: ComposeValue) => Promise<void>;
   onClose: () => void;
@@ -26,7 +29,7 @@ export function ComposeSheet({
   // (the sheet stays open until the outbox write finishes); the state disables the button.
   const submittedRef = useRef(false);
   const [submitted, setSubmitted] = useState(false);
-  const [storeError, setStoreError] = useState(false);
+  const [storeError, setStoreError] = useState(initialStoreError);
 
   const normalized = kind === 'link' ? normalizeUrl(url) : null;
   const canSave = kind === 'link' ? Boolean(normalized) : text.trim().length > 0;

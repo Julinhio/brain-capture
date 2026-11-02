@@ -741,6 +741,18 @@ a {
   text-transform: none;
 }
 
+.app-version {
+  margin: 24px 0 0;
+  font-size: 11px;
+  text-transform: none;
+  text-align: center;
+  opacity: 0.8;
+}
+.desk-side .app-version {
+  margin: 8px 10px 0;
+  text-align: left;
+}
+
 /* ---------- Login ---------- */
 .login {
   min-height: 100%;
