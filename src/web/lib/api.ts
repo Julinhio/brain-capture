@@ -26,7 +26,13 @@ export function onUnauthorized(listener: () => void): () => void {
   return () => unauthorizedListeners.delete(listener);
 }
 
-async function request<T>(method: string, path: string, body?: unknown | FormData): Promise<T> {
+// A request stuck on a flaky network would hold its outbox item "in flight" indefinitely.
+// Past these limits it counts as a network failure; the retry is safe because the server
+// deduplicates on clientId. Voice allows for upload plus a slow transcription.
+const DEFAULT_TIMEOUT_MS = 45_000;
+const VOICE_TIMEOUT_MS = 180_000;
+
+async function request<T>(method: string, path: string, body?: unknown | FormData, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<T> {
   let res: Response;
   try {
     res = await fetch(path, {
@@ -34,6 +40,7 @@ async function request<T>(method: string, path: string, body?: unknown | FormDat
       credentials: 'same-origin',
       headers: body === undefined || body instanceof FormData ? undefined : { 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch {
     throw new RequestError('network', 'No connection right now.', 0);
@@ -65,9 +72,26 @@ export const api = {
   getCapture: (id: string) => request<{ capture: Capture }>('GET', `/api/captures/${id}`).then((r) => r.capture),
   createCapture: (input: { clientId: string; kind: 'text' | 'link'; text: string; url?: string; device: string }) =>
     request<{ capture: Capture; created: boolean }>('POST', '/api/captures', input).then((r) => r.capture),
+  createVoiceCapture: (input: { clientId: string; audio: Blob; mimeType: string; durationMs: number; device: string }) => {
+    const form = new FormData();
+    // Fields first: the server reads them before the file stream.
+    form.append('clientId', input.clientId);
+    form.append('durationMs', String(Math.round(input.durationMs)));
+    form.append('device', input.device);
+    form.append('audio', input.audio, `recording.${extensionFor(input.mimeType)}`);
+    return request<{ capture: Capture; created: boolean }>('POST', '/api/captures/voice', form, VOICE_TIMEOUT_MS).then((r) => r.capture);
+  },
   updateCapture: (id: string, patch: { title?: string; text?: string; category?: Category; status?: CaptureStatus }) =>
     request<{ capture: Capture }>('PATCH', `/api/captures/${id}`, patch).then((r) => r.capture),
 };
+
+// Whisper picks the decoder from the file extension, so it has to match the container.
+function extensionFor(mimeType: string): string {
+  if (mimeType.includes('mp4') || mimeType.includes('aac')) return 'm4a';
+  if (mimeType.includes('ogg')) return 'ogg';
+  if (mimeType.includes('wav')) return 'wav';
+  return 'webm';
+}
 
 export function deviceLabel(): string {
   const ua = navigator.userAgent;

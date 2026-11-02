@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import cookie from '@fastify/cookie';
+import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { eq } from 'drizzle-orm';
@@ -42,6 +43,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
 
   await app.register(cookie);
+  await app.register(multipart);
   app.decorateRequest('user', null);
 
   const cookieOptions = (expires: Date) => ({
