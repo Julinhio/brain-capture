@@ -132,14 +132,59 @@ function notify(): void {
   for (const l of listeners) l();
 }
 
+const FIRST_RETRY_MS = 3_000;
+const MAX_RETRY_MS = 30_000;
+
+/**
+ * Sends waiting captures on launch, on "online", on return to the foreground, and then keeps
+ * retrying with backoff (3 s, 6 s, 12 s, then every 30 s) while something waits and the app
+ * is visible. The edge events alone are not enough: Android reports "online" as soon as the
+ * interface is up, often seconds before requests go through, and that single early attempt
+ * failed with nothing scheduled after it. Nothing runs while the app is in the background.
+ */
 export function startAutoFlush(): () => void {
-  const run = () => void flush().catch(() => undefined);
-  run();
-  window.addEventListener('online', run);
-  const onVisible = () => document.visibilityState === 'visible' && run();
-  document.addEventListener('visibilitychange', onVisible);
+  let timer: number | undefined;
+  let delay = FIRST_RETRY_MS;
+  let stopped = false;
+
+  const clear = () => {
+    window.clearTimeout(timer);
+    timer = undefined;
+  };
+  const schedule = () => {
+    if (stopped || timer !== undefined || document.visibilityState !== 'visible') return;
+    timer = window.setTimeout(() => {
+      timer = undefined;
+      void run();
+    }, delay);
+    delay = Math.min(delay * 2, MAX_RETRY_MS);
+  };
+  const run = async () => {
+    await flush().catch(() => undefined);
+    const waiting = (await pendingItems()).some((i) => !i.blocked);
+    if (waiting) schedule();
+    else delay = FIRST_RETRY_MS;
+  };
+  // A fresh signal (network back, app reopened) restarts the short delays.
+  const kick = () => {
+    clear();
+    delay = FIRST_RETRY_MS;
+    void run();
+  };
+  const onVisibility = () => (document.visibilityState === 'visible' ? kick() : clear());
+  // A capture that just failed in the UI joins the retry cycle without waiting for an event.
+  const unsubscribe = subscribe(() => {
+    void pendingItems().then((items) => items.some((i) => !i.blocked) && schedule());
+  });
+
+  kick();
+  window.addEventListener('online', kick);
+  document.addEventListener('visibilitychange', onVisibility);
   return () => {
-    window.removeEventListener('online', run);
-    document.removeEventListener('visibilitychange', onVisible);
+    stopped = true;
+    clear();
+    unsubscribe();
+    window.removeEventListener('online', kick);
+    document.removeEventListener('visibilitychange', onVisibility);
   };
 }

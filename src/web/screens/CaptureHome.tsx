@@ -191,7 +191,7 @@ export function CaptureHome() {
           </button>
           {c.kind === 'voice' ? (
             <button type="button" className="btn btn-primary" onClick={startRecording}>
-              <Mic size={18} aria-hidden="true" /> Record another
+              <Mic size={18} aria-hidden="true" /> Record
             </button>
           ) : (
             <button type="button" className="btn btn-primary" onClick={() => setMode({ name: 'compose', kind: c.kind === 'link' ? 'link' : 'text' })}>
