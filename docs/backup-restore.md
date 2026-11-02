@@ -56,7 +56,9 @@ node scripts/check-restore.mjs http://localhost:3101 <fichier.json>
 - **Données personnelles en clair** dans les fichiers de sauvegarde, sur OneDrive (dossier privé). À ne pas partager.
 - **Une sauvegarde ne couvre que le compte connecté** (l'app n'a qu'un compte).
 
-## Options non activées (à décider, voir la PR)
+## Options non activées
 
-1. **Sauvegardes natives Railway** du volume PostgreSQL : quotidiennes (gardées 6 jours), hebdomadaires (27 jours) ou mensuelles (89 jours). Facturées comme du stockage de volume, environ 0,16 $ par Go et par mois : quelques centimes pour cette base. Protègent toute la base, mais restent chez Railway, et une restauration remplace le volume entier. **Nouvelle dépense : accord de Julien requis.**
-2. **Tâche planifiée Windows** lançant `backup.mjs` chaque jour : 0 €, mais le PC doit être allumé à l'heure prévue, et c'est une configuration permanente du poste. **Accord de Julien requis.**
+Décision de Julien le 2026-11-02 : sauvegardes manuelles pour l'instant, ni tâche planifiée Windows ni sauvegarde Railway payante. Les deux options restent possibles plus tard :
+
+1. **Sauvegardes natives Railway** du volume PostgreSQL : quotidiennes (gardées 6 jours), hebdomadaires (27 jours) ou mensuelles (89 jours). Facturées comme du stockage de volume, environ 0,16 $ par Go et par mois : quelques centimes pour cette base. Protègent toute la base, mais restent chez Railway, et une restauration remplace le volume entier. Nouvelle dépense : accord de Julien requis.
+2. **Tâche planifiée Windows** lançant `backup.mjs` chaque jour : 0 €, mais le PC doit être allumé à l'heure prévue, et c'est une configuration permanente du poste. Accord de Julien requis.
