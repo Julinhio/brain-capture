@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Capture } from '../../shared/types';
 import { CaptureView } from '../components/CaptureView';
 import { ComposeSheet, type ComposeValue } from '../components/ComposeSheet';
-import { discard, enqueue, flush, onSent, pendingItems, send, subscribe, type NewOutboxItem, type OutboxItem } from '../lib/outbox';
+import { discard, enqueue, flush, makeItem, onSent, pendingItems, send, subscribe, type NewOutboxItem, type OutboxItem } from '../lib/outbox';
 import { navigate } from '../lib/router';
 import { clockTime, formatDuration, relativeTime } from '../lib/time';
 import { useRecentCaptures } from '../lib/useCaptures';
@@ -13,8 +13,10 @@ import { MAX_RECORDING_MS, useRecorder, type RecorderError, type Recording } fro
 type Mode =
   | { name: 'home' }
   | { name: 'compose'; kind: 'text' | 'link'; initial?: ComposeValue; replaces?: string }
-  | { name: 'saving'; item: OutboxItem; notice?: string }
-  | { name: 'not-saved'; item: OutboxItem; message: string; retryable: boolean }
+  // `unstored`: the device refused to keep it (storage full or blocked). It then lives only in
+  // this screen's memory, so nothing may suggest it is safe to walk away.
+  | { name: 'saving'; item: OutboxItem; notice?: string; unstored?: boolean }
+  | { name: 'not-saved'; item: OutboxItem; message: string; retryable: boolean; unstored?: boolean }
   | { name: 'saved'; capture: Capture; notice?: string };
 
 const MIC_ERRORS: Record<RecorderError, string> = {
@@ -71,7 +73,10 @@ export function CaptureHome() {
         : recording.endedBecause === 'limit'
           ? 'Recording stopped at the 10 minute limit.'
           : undefined;
-    void save({ kind: 'voice', audio: recording.blob, mimeType: recording.mimeType, durationMs: recording.durationMs }, undefined, notice);
+    const input: NewOutboxItem = { kind: 'voice', audio: recording.blob, mimeType: recording.mimeType, durationMs: recording.durationMs };
+    // If the device cannot store the recording, still send it straight from memory rather
+    // than dropping what was just said.
+    save(input, undefined, notice).catch(() => attempt(makeItem(input), notice, true));
   });
 
   /** Rejects only if the device write fails; once stored, every later step handles its own errors. */
@@ -84,16 +89,16 @@ export function CaptureHome() {
     await attempt(item, notice);
   }
 
-  async function attempt(item: OutboxItem, notice?: string) {
+  async function attempt(item: OutboxItem, notice?: string, unstored = false) {
     followed.current = item.clientId;
-    setMode({ name: 'saving', item, notice });
+    setMode({ name: 'saving', item, notice, unstored });
     const result = await send(item);
     if (followed.current !== item.clientId) return;
     if (result.ok) {
       setMode({ name: 'saved', capture: result.capture, notice });
       void queryClient.invalidateQueries({ queryKey: ['captures'] });
     } else {
-      setMode({ name: 'not-saved', item, message: result.message, retryable: result.retryable });
+      setMode({ name: 'not-saved', item, message: result.message, retryable: result.retryable, unstored });
     }
   }
 
@@ -167,7 +172,7 @@ export function CaptureHome() {
     return (
       <NotSaved
         mode={mode}
-        onRetry={() => void attempt(item)}
+        onRetry={() => void attempt(item, undefined, mode.unstored)}
         onEdit={
           item.kind === 'voice'
             ? undefined
@@ -421,7 +426,12 @@ function NotSaved({
           <AlertTriangle size={22} />
         </div>
         <h1>Not saved yet</h1>
-        {mode.retryable ? (
+        {mode.unstored ? (
+          <p className="lead">
+            {mode.message} This device could not keep the {voice ? 'recording' : 'capture'}: it only exists on this screen. Retry
+            while it is open; leaving the screen loses it.
+          </p>
+        ) : mode.retryable ? (
           <p className="lead">
             {mode.message} Your {voice ? 'recording' : 'capture'} is safe on this device. It is sent automatically while the app is
             open, and this screen updates as soon as it is saved.
@@ -433,7 +443,9 @@ function NotSaved({
           <div className="list" style={{ marginTop: 24 }}>
             <div className="list-item" style={{ cursor: 'default' }}>
               <span className="rec-dot" style={{ background: 'var(--warning)' }} aria-hidden="true" />
-              <span className="grow">{mode.retryable ? 'Retrying automatically' : 'Recording kept on this device'}</span>
+              <span className="grow">
+                {mode.unstored ? 'Only on this screen' : mode.retryable ? 'Retrying automatically' : 'Recording kept on this device'}
+              </span>
               <span className="meta mono">{formatDuration(mode.item.durationMs)}</span>
             </div>
           </div>
@@ -444,10 +456,17 @@ function NotSaved({
               <button type="button" className="btn btn-primary btn-block" onClick={onRetry}>
                 Retry now
               </button>
-              <button type="button" className="btn btn-block" onClick={onDone}>
-                Keep it for later
-              </button>
+              {!mode.unstored && (
+                <button type="button" className="btn btn-block" onClick={onDone}>
+                  Keep it for later
+                </button>
+              )}
             </>
+          )}
+          {!mode.retryable && mode.unstored && (
+            <button type="button" className="btn btn-primary btn-block" onClick={onRetry}>
+              Try again
+            </button>
           )}
           {!mode.retryable && onEdit && (
             <button type="button" className="btn btn-primary btn-block" onClick={onEdit}>
@@ -464,7 +483,8 @@ function NotSaved({
             className="btn btn-danger-text btn-block"
             onClick={() => {
               if (!confirmDiscard) return setConfirmDiscard(true);
-              void discard(mode.item.clientId).then(onDone);
+              // An unstored capture has no local copy to delete; never get stuck on this screen.
+              void discard(mode.item.clientId).catch(() => undefined).then(onDone);
             }}
           >
             {confirmDiscard ? 'Tap again to discard for good' : voice ? 'Discard recording' : 'Discard'}

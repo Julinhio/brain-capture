@@ -43,7 +43,8 @@ function db(): Promise<IDBPDatabase<OutboxDb>> {
   return dbPromise;
 }
 
-export async function enqueue(input: NewOutboxItem): Promise<OutboxItem> {
+/** Builds an item without storing it (used directly when the device refuses to store). */
+export function makeItem(input: NewOutboxItem): OutboxItem {
   const base: OutboxBase = {
     clientId: crypto.randomUUID(),
     device: deviceLabel(),
@@ -51,7 +52,11 @@ export async function enqueue(input: NewOutboxItem): Promise<OutboxItem> {
     attempts: 0,
     lastError: null,
   };
-  const item: OutboxItem = { ...base, ...input };
+  return { ...base, ...input };
+}
+
+export async function enqueue(input: NewOutboxItem): Promise<OutboxItem> {
+  const item = makeItem(input);
   await (await db()).put('outbox', item);
   notify();
   return item;
@@ -92,20 +97,30 @@ export function send(item: OutboxItem): Promise<SendResult> {
   if (running) return running;
   const attempt = (async (): Promise<SendResult> => {
     try {
-      const capture = await upload(item);
-      await (await db()).delete('outbox', item.clientId);
+      let capture: Capture;
+      try {
+        capture = await upload(item);
+      } catch (err) {
+        const e = err instanceof RequestError ? err : new RequestError('network', 'No connection right now.', 0);
+        // Bookkeeping is best effort: an item that never reached the outbox (device storage
+        // refused it) must still get an honest answer. Update only if the item is still
+        // there, so a Discard during the request sticks.
+        try {
+          const tx = (await db()).transaction('outbox', 'readwrite');
+          const current = await tx.store.get(item.clientId);
+          if (current) {
+            await tx.store.put({ ...current, attempts: current.attempts + 1, lastError: e.message, blocked: !e.retryable });
+          }
+          await tx.done;
+        } catch {
+          // Local storage unavailable: nothing to update.
+        }
+        return { ok: false, retryable: e.retryable, message: e.message, code: e.code };
+      }
+      // The server has it: a failure to clean up locally must not report the save as failed.
+      await (async () => (await db()).delete('outbox', item.clientId))().catch(() => undefined);
       for (const l of sentListeners) l(item.clientId, capture);
       return { ok: true, capture };
-    } catch (err) {
-      const e = err instanceof RequestError ? err : new RequestError('network', 'No connection right now.', 0);
-      // Update only if the item is still there: a Discard during the request must stick.
-      const tx = (await db()).transaction('outbox', 'readwrite');
-      const current = await tx.store.get(item.clientId);
-      if (current) {
-        await tx.store.put({ ...current, attempts: current.attempts + 1, lastError: e.message, blocked: !e.retryable });
-      }
-      await tx.done;
-      return { ok: false, retryable: e.retryable, message: e.message, code: e.code };
     } finally {
       inFlight.delete(item.clientId);
       notify();
