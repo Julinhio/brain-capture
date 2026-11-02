@@ -48,9 +48,19 @@ export function useRecorder(onFinished: (recording: Recording) => void) {
     recorder.stop();
   }, []);
 
+  // Each start gets a number; cancelling or unmounting bumps it. A microphone grant that
+  // arrives after that (the permission prompt can stay open for a while) is for a recording
+  // nobody wants any more, and must not start one.
+  const attemptRef = useRef(0);
+
   const cancel = useCallback(() => {
     discardRef.current = true;
-    stop();
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      stop();
+      return;
+    }
+    attemptRef.current += 1;
+    setState({ name: 'idle' });
   }, [stop]);
 
   const start = useCallback(async () => {
@@ -58,6 +68,7 @@ export function useRecorder(onFinished: (recording: Recording) => void) {
       setState({ name: 'error', error: 'unsupported' });
       return;
     }
+    const attempt = ++attemptRef.current;
     setState({ name: 'starting' });
     let stream: MediaStream;
     try {
@@ -65,11 +76,16 @@ export function useRecorder(onFinished: (recording: Recording) => void) {
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
     } catch (err) {
+      if (attempt !== attemptRef.current) return;
       const name = (err as DOMException).name;
       setState({
         name: 'error',
         error: name === 'NotAllowedError' || name === 'SecurityError' ? 'permission-denied' : name === 'NotFoundError' ? 'no-microphone' : 'failed',
       });
+      return;
+    }
+    if (attempt !== attemptRef.current) {
+      stream.getTracks().forEach((t) => t.stop());
       return;
     }
 
@@ -150,6 +166,7 @@ export function useRecorder(onFinished: (recording: Recording) => void) {
   useEffect(
     () => () => {
       discardRef.current = true;
+      attemptRef.current += 1;
       recorderRef.current?.state !== 'inactive' && recorderRef.current?.stop();
       cleanupRef.current?.();
     },
