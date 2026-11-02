@@ -53,7 +53,26 @@ async function main() {
   }
   const storeFailure = { sheetOpened, prefilled, errorShown, savedAfter, created: await count(`automation-lead-${stamp}`) };
 
-  const result = { shareOnce, storeFailure };
+  // C: app icon shortcuts. Phone: the compose sheet opens. Desktop: the quick field gets focus.
+  await page.goto(`${base}/?compose=link`);
+  const phoneShortcut = await page.getByRole('dialog', { name: 'Save a link' }).waitFor({ timeout: 10_000 }).then(() => true, () => false);
+  const desktop = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  await desktop.goto(base);
+  await desktop.evaluate(
+    async ([email, password]) =>
+      fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) }),
+    [process.env.OWNER_EMAIL, process.env.DEV_PASSWORD],
+  );
+  await desktop.goto(`${base}/?compose=text`);
+  await desktop.getByLabel('Quick capture').waitFor();
+  await desktop.waitForTimeout(500);
+  const shortcuts = {
+    phoneShortcut,
+    desktopFocused: await desktop.evaluate(() => document.activeElement?.id === 'quick-capture'),
+    desktopUrlCleaned: new URL(desktop.url()).search === '',
+  };
+
+  const result = { shareOnce, storeFailure, shortcuts };
   console.log(JSON.stringify(result));
   await browser.close();
   const ok =
@@ -63,7 +82,10 @@ async function main() {
     storeFailure.prefilled &&
     storeFailure.errorShown &&
     storeFailure.savedAfter &&
-    storeFailure.created === 1;
+    storeFailure.created === 1 &&
+    shortcuts.phoneShortcut &&
+    shortcuts.desktopFocused &&
+    shortcuts.desktopUrlCleaned;
   process.exitCode = ok ? 0 : 1;
 }
 

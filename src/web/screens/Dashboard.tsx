@@ -274,6 +274,15 @@ type BarStatus =
 function CaptureBar() {
   const queryClient = useQueryClient();
   const [value, setValue] = useState('');
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
+  // App icon shortcuts ("Write a note", "Save a link") open /?compose=…: on desktop both land
+  // in this one field, which accepts notes and links alike.
+  const composeParam = useSearchParam('compose');
+  useEffect(() => {
+    if (!composeParam) return;
+    fieldRef.current?.focus();
+    navigate('/', { replace: true });
+  }, [composeParam]);
   // Latest field content, readable after an await (the submit closure holds a stale copy).
   const valueRef = useRef('');
   valueRef.current = value;
@@ -378,6 +387,7 @@ function CaptureBar() {
             Shift+Enter adds a line, and Enter while an IME is composing is left alone. */}
         <textarea
           id="quick-capture"
+          ref={fieldRef}
           rows={1}
           placeholder="Type a thought or paste a link. It sorts itself."
           value={value}

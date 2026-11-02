@@ -58,6 +58,8 @@ async function main() {
 
   console.log(JSON.stringify({ login, swState, controlled, offlineHome, waiting, storedOnServer: stored, pageErrors: errors }, null, 2));
   await browser.close();
+  const ok = login === 200 && Boolean(swState) && controlled && offlineHome && waiting && stored === 1 && errors.length === 0;
+  process.exitCode = ok ? 0 : 1;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
