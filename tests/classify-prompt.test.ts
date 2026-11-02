@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildClassifyMessages, parseClassifyResponse } from '../src/server/ai/classify-prompt.js';
-import { extractUrl, fallbackTitle, normalizeUrl } from '../src/shared/text.js';
+import { extractUrl, fallbackTitle, normalizeUrl, removeLinkFromNote } from '../src/shared/text.js';
 
 describe('parseClassifyResponse', () => {
   it('accepts a clean answer', () => {
@@ -42,6 +42,16 @@ describe('buildClassifyMessages', () => {
 describe('url helpers', () => {
   it('extracts the URL from shared text', () => {
     expect(extractUrl('Look at this https://alan.com/jobs/pm, nice')).toBe('https://alan.com/jobs/pm');
+  });
+
+  it('keeps parentheses that belong to the URL', () => {
+    expect(extractUrl('See https://en.wikipedia.org/wiki/Map_(disambiguation).')).toBe(
+      'https://en.wikipedia.org/wiki/Map_(disambiguation)',
+    );
+    expect(extractUrl('(source: https://alan.com/jobs)')).toBe('https://alan.com/jobs');
+    expect(removeLinkFromNote('Read https://en.wikipedia.org/wiki/Map_(disambiguation) tonight', 'https://en.wikipedia.org/wiki/Map_(disambiguation)')).toBe(
+      'Read tonight',
+    );
   });
 
   it('adds https to a bare domain and refuses other schemes', () => {

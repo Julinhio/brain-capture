@@ -86,7 +86,13 @@ export function send(item: OutboxItem): Promise<SendResult> {
       return { ok: true, capture };
     } catch (err) {
       const e = err instanceof RequestError ? err : new RequestError('network', 'No connection right now.', 0);
-      await (await db()).put('outbox', { ...item, attempts: item.attempts + 1, lastError: e.message, blocked: !e.retryable });
+      // Update only if the item is still there: a Discard during the request must stick.
+      const tx = (await db()).transaction('outbox', 'readwrite');
+      const current = await tx.store.get(item.clientId);
+      if (current) {
+        await tx.store.put({ ...current, attempts: current.attempts + 1, lastError: e.message, blocked: !e.retryable });
+      }
+      await tx.done;
       return { ok: false, retryable: e.retryable, message: e.message };
     } finally {
       inFlight.delete(item.clientId);

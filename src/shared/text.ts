@@ -18,11 +18,30 @@ export function normalizeUrl(raw: string): string | null {
   }
 }
 
-/** First http(s) URL inside free text, trailing punctuation removed (LinkedIn and Chrome shares mix text and URL). */
+/**
+ * Drops sentence punctuation glued after a URL. A closing parenthesis is kept when the URL
+ * opened it itself (https://en.wikipedia.org/wiki/Map_(disambiguation)).
+ */
+export function trimUrlToken(raw: string): string {
+  let token = raw;
+  for (;;) {
+    if (/[.,;:!?»]$/.test(token)) {
+      token = token.slice(0, -1);
+      continue;
+    }
+    if (token.endsWith(')') && (token.match(/\(/g)?.length ?? 0) < (token.match(/\)/g)?.length ?? 0)) {
+      token = token.slice(0, -1);
+      continue;
+    }
+    return token;
+  }
+}
+
+/** First http(s) URL inside free text (LinkedIn and Chrome shares mix text and URL). */
 export function extractUrl(text: string): string | null {
   const match = URL_PATTERN.exec(text);
   if (!match) return null;
-  return normalizeUrl(match[0].replace(/[).,;:!?»]+$/, ''));
+  return normalizeUrl(trimUrlToken(match[0]));
 }
 
 /**
@@ -32,7 +51,7 @@ export function extractUrl(text: string): string | null {
 export function removeLinkFromNote(text: string, url: string): string {
   const pattern = new RegExp(URL_PATTERN.source, 'gi');
   for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
-    if (normalizeUrl(match[0].replace(/[).,;:!?»]+$/, '')) !== url) continue;
+    if (normalizeUrl(trimUrlToken(match[0])) !== url) continue;
     const before = text.slice(0, match.index);
     const after = text.slice(match.index + match[0].length);
     return `${before}${after}`.replace(/[ \t]{2,}/g, ' ').trim();
