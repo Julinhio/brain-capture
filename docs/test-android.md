@@ -2,7 +2,7 @@
 
 Déploiement de test : https://brain-capture-production-8fa2.up.railway.app
 Compte : julinhio@hotmail.com, mot de passe dans le presse-papiers (et dans `dev-secrets\brain-capture\.env`, ligne `OWNER_PASSWORD`).
-Version déployée : branche `feat/pwa-share`, commit `9f64483`. Ce test ne vaut pas validation des PR 2 à 4.
+Version déployée : branche `feat/pwa-share`, au commit annoncé par Ben à chaque déploiement. Ce test ne vaut pas validation des PR 2 à 4.
 
 Note pour chaque étape : OK, KO (avec ce que tu as vu), ou capture d'écran.
 
