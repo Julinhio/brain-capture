@@ -5,7 +5,8 @@ import type { Capture } from '../../shared/types';
 import { CaptureView } from '../components/CaptureView';
 import { ComposeSheet, type ComposeValue } from '../components/ComposeSheet';
 import { discard, enqueue, flush, makeItem, onSent, pendingItems, send, subscribe, type NewOutboxItem, type OutboxItem } from '../lib/outbox';
-import { navigate } from '../lib/router';
+import { sharedToCapture, type SharedData } from '../../shared/share';
+import { navigate, useSearchParam } from '../lib/router';
 import { clockTime, formatDuration, relativeTime } from '../lib/time';
 import { useRecentCaptures } from '../lib/useCaptures';
 import { MAX_RECORDING_MS, useRecorder, type RecorderError, type Recording } from '../lib/useRecorder';
@@ -56,9 +57,15 @@ function usePendingItems(): OutboxItem[] {
   return items;
 }
 
-export function CaptureHome() {
+// A share opens /share once per page load; StrictMode and re-renders must not save it twice.
+let handledShare: string | null = null;
+
+export function CaptureHome({ share }: { share?: SharedData } = {}) {
   const queryClient = useQueryClient();
-  const [mode, setMode] = useState<Mode>({ name: 'home' });
+  const composeParam = useSearchParam('compose');
+  const [mode, setMode] = useState<Mode>(() =>
+    composeParam === 'text' || composeParam === 'link' ? { name: 'compose', kind: composeParam } : { name: 'home' },
+  );
   const recent = useRecentCaptures(3);
   const pending = usePendingItems();
   const blocked = pending.find((i) => i.blocked);
@@ -123,6 +130,25 @@ export function CaptureHome() {
     followed.current = null;
     setMode({ name: 'home' });
   }
+
+  useEffect(() => {
+    if (!share) return;
+    const key = `${performance.timeOrigin}:${window.location.search}`;
+    if (handledShare === key) return;
+    handledShare = key;
+    // Leave /share right away so a reload or "back" does not save it a second time.
+    navigate('/', { replace: true });
+    const shared = sharedToCapture(share);
+    if (!shared) {
+      setMode({ name: 'compose', kind: 'text' });
+      return;
+    }
+    void save(shared.kind === 'link' ? { kind: 'link', text: shared.text, url: shared.url } : { kind: 'text', text: shared.text });
+  }, [share]);
+
+  useEffect(() => {
+    if (composeParam) navigate('/', { replace: true });
+  }, [composeParam]);
 
   function startRecording() {
     followed.current = null;

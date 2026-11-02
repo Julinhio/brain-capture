@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
+import type { SharedData } from '../shared/share';
 import { api, onUnauthorized, RequestError } from './lib/api';
 import { startAutoFlush } from './lib/outbox';
 import { usePath } from './lib/router';
@@ -8,6 +9,11 @@ import { CaptureHome } from './screens/CaptureHome';
 import { Dashboard } from './screens/Dashboard';
 import { History } from './screens/History';
 import { Login } from './screens/Login';
+
+function readShare(): SharedData {
+  const params = new URLSearchParams(window.location.search);
+  return { title: params.get('title'), text: params.get('text'), url: params.get('url') };
+}
 
 export function App() {
   const queryClient = useQueryClient();
@@ -37,6 +43,7 @@ export function App() {
 
   if (me.isPending) return null;
   if (!signedIn) return <Login />;
+  if (path === '/share') return <CaptureHome share={readShare()} />;
   if (desktop && path === '/') return <Dashboard />;
   if (path.startsWith('/history')) return <History />;
   return <CaptureHome />;
