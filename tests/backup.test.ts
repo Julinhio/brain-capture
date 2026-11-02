@@ -78,6 +78,30 @@ describe('restore', () => {
     }
   });
 
+  it('restores anything the app could store, such as a long percent-encoded URL', async () => {
+    const res = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/captures',
+      headers: { cookie },
+      payload: { clientId: newClientId(), kind: 'link', url: `https://example.com/${'é'.repeat(1000)}` },
+    });
+    expect(res.statusCode).toBe(201);
+    const original = await exportAs();
+    expect(original.captures[0].url.length).toBeGreaterThan(4096);
+
+    const fresh = await setup();
+    try {
+      await createUser(fresh.db, 'julien@example.com');
+      const freshCookie = await login(fresh.app, 'julien@example.com');
+      const imported = await fresh.app.inject({ method: 'POST', url: '/api/import', headers: { cookie: freshCookie }, payload: original });
+      expect(imported.json()).toEqual({ inserted: 1, skipped: 0, total: 1 });
+      const restored = (await fresh.app.inject({ method: 'GET', url: '/api/export', headers: { cookie: freshCookie } })).json();
+      expect(restored.captures).toEqual(original.captures);
+    } finally {
+      await fresh.close();
+    }
+  });
+
   it('is idempotent and never overwrites a capture that already exists', async () => {
     const a = await capture('Kept as is');
     const backup = await exportAs();

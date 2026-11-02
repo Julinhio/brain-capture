@@ -4,6 +4,7 @@
 // localhost requires --yes, so a production restore is always a deliberate act.
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { importInBatches } from './lib/import-batches.mjs';
 
 const DEFAULT_URL = 'https://brain-capture-production-8fa2.up.railway.app';
 
@@ -34,13 +35,7 @@ async function main() {
   if (!login.ok) throw new Error(`Sign-in failed (${login.status})`);
   const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0];
   try {
-    const res = await fetch(`${base}/api/import`, {
-      method: 'POST',
-      headers: { cookie, 'Content-Type': 'application/json' },
-      body: JSON.stringify(backup),
-    });
-    if (!res.ok) throw new Error(`Import failed (${res.status}): ${await res.text()}`);
-    console.log(JSON.stringify({ target: base, file, ...(await res.json()) }));
+    console.log(JSON.stringify({ target: base, file, ...(await importInBatches(base, cookie, backup)) }));
   } finally {
     await fetch(`${base}/api/auth/logout`, { method: 'POST', headers: { cookie } }).catch(() => undefined);
   }

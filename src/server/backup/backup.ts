@@ -14,24 +14,29 @@ import { sendError } from '../http.js';
  */
 export const EXPORT_FORMAT = 'brain-capture-export';
 export const EXPORT_VERSION = 1;
-// Generous for a personal tool (a capture is a few KB at most); the import is one request.
+// Per request. Restores of any size go through in batches (scripts/lib/import-batches.mjs),
+// each batch being itself a valid export file.
 const IMPORT_BODY_LIMIT = 25 * 1024 * 1024;
 
+// The import must accept anything the app itself can have stored, or a real backup could
+// become unrestorable. These caps are sanity bounds well above every producer: a stored URL
+// can be far longer than the 2048 characters typed (non-ASCII is percent-encoded, up to 9
+// characters each), and voice transcripts are not capped like typed text.
 const exportedCapture = z.object({
   id: z.uuid(),
   clientId: z.uuid(),
   kind: z.enum(['voice', 'text', 'link']),
-  title: z.string().max(500).nullable(),
+  title: z.string().max(10_000).nullable(),
   titleManual: z.boolean(),
-  text: z.string().max(100_000),
-  originalText: z.string().max(100_000),
-  url: z.string().max(4096).nullable(),
+  text: z.string().max(1_000_000),
+  originalText: z.string().max(1_000_000),
+  url: z.string().max(100_000).nullable(),
   category: z.enum(CATEGORIES),
   categorySource: z.enum(['auto', 'manual', 'fallback']),
   classificationStatus: z.enum(['pending', 'done', 'failed']),
   status: z.enum(['open', 'done', 'archived']),
   durationMs: z.number().int().min(0).nullable(),
-  device: z.string().max(40).nullable(),
+  device: z.string().max(200).nullable(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   doneAt: z.iso.datetime().nullable(),

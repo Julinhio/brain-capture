@@ -6,6 +6,7 @@
 // nothing is duplicated or overwritten.
 import { existsSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { importInBatches } from './lib/import-batches.mjs';
 
 async function main() {
   if (existsSync('.env')) process.loadEnvFile('.env');
@@ -23,8 +24,7 @@ async function main() {
   if (!login.ok) throw new Error(`Local sign-in failed (${login.status})`);
   const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0];
   const exportNow = async () => (await (await fetch(`${base}/api/export`, { headers: { cookie } })).json()).captures;
-  const importFile = async () =>
-    (await fetch(`${base}/api/import`, { method: 'POST', headers: { cookie, 'Content-Type': 'application/json' }, body: JSON.stringify(backup) })).json();
+  const importFile = () => importInBatches(base, cookie, backup);
 
   const before = (await exportNow()).length;
   // An instance that already holds captures is not isolated: stop before writing anything.
