@@ -3,6 +3,7 @@ import { AlertTriangle, Check, Clock, Link2, Mic, MicOff, Square, Type, X } from
 import { useEffect, useRef, useState } from 'react';
 import type { Capture } from '../../shared/types';
 import { CaptureView } from '../components/CaptureView';
+import { CategoryIcon } from '../components/CategoryIcon';
 import { ComposeSheet, type ComposeValue } from '../components/ComposeSheet';
 import { discard, enqueue, flush, makeItem, onSent, pendingItems, send, subscribe, type NewOutboxItem, type OutboxItem } from '../lib/outbox';
 import { sharedToCapture, type SharedData } from '../../shared/share';
@@ -329,7 +330,7 @@ export function CaptureHome({ share }: { share?: SharedData } = {}) {
           {recent.isSuccess && latest.length === 0 && <p className="empty">Nothing yet. Your first capture will show up here.</p>}
           {latest.map((c) => (
             <button key={c.id} type="button" className="list-item" data-cat={c.category} onClick={() => navigate(`/history?id=${c.id}`)}>
-              <span className="cat-dot" aria-hidden="true" />
+              <CategoryIcon category={c.category} />
               <span className="grow">{c.title ?? c.text}</span>
               <span className="meta">{relativeTime(c.createdAt)}</span>
             </button>

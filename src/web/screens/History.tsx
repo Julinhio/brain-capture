@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { CATEGORIES, CATEGORY_LABELS, type Category } from '../../shared/categories';
 import type { Capture, CaptureStatus } from '../../shared/types';
 import { CaptureView } from '../components/CaptureView';
+import { CategoryIcon } from '../components/CategoryIcon';
 import { navigate, useSearchParam } from '../lib/router';
 import { relativeTime } from '../lib/time';
 import { useCapture, useCapturePages, useUpdateCapture } from '../lib/useCaptures';
@@ -24,7 +25,7 @@ function HistoryList() {
   const visible = pages.data?.pages.flatMap((p) => p.captures) ?? [];
 
   return (
-    <main className="screen">
+    <main className="screen history-screen">
       <TopBar />
       <h1 style={{ fontSize: 24, letterSpacing: '-0.02em', margin: '16px 0 12px' }}>History</h1>
 
@@ -34,7 +35,7 @@ function HistoryList() {
         </button>
         {CATEGORIES.map((c) => (
           <button key={c} type="button" className="cat-option" data-cat={c} aria-pressed={category === c} onClick={() => setCategory(c)}>
-            <span className="cat-dot" aria-hidden="true" />
+            <CategoryIcon category={c} />
             {CATEGORY_LABELS[c]}
           </button>
         ))}
@@ -52,7 +53,7 @@ function HistoryList() {
         {pages.isSuccess && visible.length === 0 && <p className="empty">Nothing here.</p>}
         {visible.map((c) => (
           <button key={c.id} type="button" className="list-item" data-cat={c.category} onClick={() => navigate(`/history?id=${c.id}`)}>
-            <span className="cat-dot" aria-hidden="true" />
+            <CategoryIcon category={c.category} />
             <span className="grow">{c.title ?? c.text}</span>
             <span className="meta">
               {KIND_LABEL[c.kind]} · {relativeTime(c.createdAt)}
