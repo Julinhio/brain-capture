@@ -27,6 +27,10 @@ async function main() {
     (await fetch(`${base}/api/import`, { method: 'POST', headers: { cookie, 'Content-Type': 'application/json' }, body: JSON.stringify(backup) })).json();
 
   const before = (await exportNow()).length;
+  // An instance that already holds captures is not isolated: stop before writing anything.
+  if (before !== 0) {
+    throw new Error(`The target already holds ${before} captures: use a fresh, empty instance for this check. Nothing was imported.`);
+  }
   const first = await importFile();
   const restored = await exportNow();
   const sort = (list) => [...list].sort((a, b) => a.id.localeCompare(b.id));
