@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Search, X } from 'lucide-react';
+import { ArrowRight, Download, Search, X } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { CATEGORIES, CATEGORY_HINTS, CATEGORY_LABELS, isCategory, type Category } from '../../shared/categories';
 import { extractUrl, hostOf, normalizeUrl } from '../../shared/text';
@@ -66,6 +66,11 @@ export function Dashboard() {
             label="Archived"
             count={overview.data?.archived}
           />
+          {/* Manual backup: every capture as a JSON file, restorable through /api/import. */}
+          <a className="side-link side-backup" href="/api/export?download=1" download>
+            <Download size={14} aria-hidden="true" />
+            <span className="grow">Download backup</span>
+          </a>
         </nav>
         <p className="side-sync">
           <span className={`rec-dot ${overview.isError ? 'off' : ''}`} aria-hidden="true" />

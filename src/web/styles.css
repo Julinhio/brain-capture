@@ -834,6 +834,11 @@ a {
   color: var(--text);
   font-weight: 600;
 }
+.side-backup {
+  margin-top: 12px;
+  font-size: 13px;
+  text-decoration: none;
+}
 .side-count {
   text-transform: none;
 }

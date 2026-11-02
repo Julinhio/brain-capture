@@ -59,6 +59,10 @@ Each script drives Chromium (`playwright-core`, pinned to the locally installed 
 | `check-share.mjs` | A share opened at `/share` is saved once (run on the Vite dev server to cover StrictMode replays); if storage fails, the shared content reopens prefilled instead of being lost |
 | `check-desktop-bar.mjs` | Desktop quick bar and search: storage failure, double Enter, background save, refusals, line breaks, drawer errors |
 
+## Backup and restore
+
+Owner-level JSON export and import through the app (`GET /api/export`, `POST /api/import`); the import only adds missing captures. `scripts/backup.mjs` saves a file, `scripts/restore.mjs` restores one, `scripts/check-restore.mjs` proves a file restores field by field into an isolated local instance. Procedure, costs and limits: `docs/backup-restore.md`.
+
 ## Deploy (test deployment on Railway)
 
 One app service and one PostgreSQL in the personal project `brain-capture`. Deploys are manual uploads of a clean checkout, marked with the commit so the running version can be checked without creating a capture:
