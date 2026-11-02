@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { CATEGORIES } from '../../shared/categories.js';
-import { extractUrl, normalizeUrl, stripUrls } from '../../shared/text.js';
+import { extractUrl, normalizeUrl, removeLinkFromNote } from '../../shared/text.js';
 import type { CaptureStatus } from '../../shared/types.js';
 import type { AppDeps } from '../app.js';
 import { sendError } from '../http.js';
@@ -72,7 +72,7 @@ export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps)
       return sendError(reply, 400, 'invalid_input', 'Write something first.');
     }
     // A link note without the URL repeated reads better; keep whatever else was shared.
-    const note = input.kind === 'link' ? stripUrls(text) : text;
+    const note = input.kind === 'link' && url ? removeLinkFromNote(text, url) : text;
 
     const { row, created } = await insertCapture(db, req.user!.id, {
       clientId: input.clientId,

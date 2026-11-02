@@ -55,6 +55,19 @@ describe('text and link captures', () => {
     expect(capture.text).toBe('Automation Lead chez Qonto');
   });
 
+  it('keeps other URLs of the note intact', async () => {
+    const res = await post({
+      clientId: newClientId(),
+      kind: 'link',
+      url: 'https://alan.com/jobs/pm',
+      text: 'PM role https://alan.com/jobs/pm, compare with https://qonto.com/careers before applying',
+    });
+    const { capture } = res.json() as { capture: Capture };
+    expect(capture.url).toBe('https://alan.com/jobs/pm');
+    expect(capture.text).toBe('PM role compare with https://qonto.com/careers before applying');
+    expect(capture.originalText).toBe(capture.text);
+  });
+
   it('refuses non-web links', async () => {
     for (const url of ['javascript:alert(1)', 'file:///etc/passwd', 'not a link']) {
       const res = await post({ clientId: newClientId(), kind: 'link', url });

@@ -25,12 +25,19 @@ export function extractUrl(text: string): string | null {
   return normalizeUrl(match[0].replace(/[).,;:!?»]+$/, ''));
 }
 
-/** Removes URLs together with the punctuation glued to them ("Qonto https://x.com/job)." -> "Qonto"). */
-export function stripUrls(text: string): string {
-  return text
-    .replace(/\(?https?:\/\/[^\s<>"'`]+/gi, '')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
+/**
+ * Removes the one URL that became the capture's link (with the punctuation glued to it),
+ * leaving any other URL in the note untouched: the note must not lose content.
+ */
+export function removeLinkFromNote(text: string, url: string): string {
+  const pattern = new RegExp(URL_PATTERN.source, 'gi');
+  for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+    if (normalizeUrl(match[0].replace(/[).,;:!?»]+$/, '')) !== url) continue;
+    const before = text.slice(0, match.index);
+    const after = text.slice(match.index + match[0].length);
+    return `${before}${after}`.replace(/[ \t]{2,}/g, ' ').trim();
+  }
+  return text;
 }
 
 export function hostOf(url: string): string {
