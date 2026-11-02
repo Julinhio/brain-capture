@@ -138,8 +138,9 @@ export function CaptureHome({ share }: { share?: SharedData } = {}) {
     const key = `${performance.timeOrigin}:${JSON.stringify([share.title, share.text, share.url])}`;
     if (handledShare === key) return;
     handledShare = key;
-    // Leave /share right away so a reload or "back" does not save it a second time.
-    navigate('/', { replace: true });
+    // Leave /share right away so a reload or "back" does not save it a second time. /capture,
+    // not /: on desktop "/" is the dashboard, which would unmount the saving and recovery screens.
+    navigate('/capture', { replace: true });
     const shared = sharedToCapture(share);
     if (!shared) {
       setMode({ name: 'compose', kind: 'text' });

@@ -56,7 +56,8 @@ async function main() {
   // C: app icon shortcuts. Phone: the compose sheet opens. Desktop: the quick field gets focus.
   await page.goto(`${base}/?compose=link`);
   const phoneShortcut = await page.getByRole('dialog', { name: 'Save a link' }).waitFor({ timeout: 10_000 }).then(() => true, () => false);
-  const desktop = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const desktopContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const desktop = await desktopContext.newPage();
   await desktop.goto(base);
   await desktop.evaluate(
     async ([email, password]) =>
@@ -72,12 +73,28 @@ async function main() {
     desktopUrlCleaned: new URL(desktop.url()).search === '',
   };
 
-  const result = { shareOnce, storeFailure, shortcuts };
+  // D: a share on desktop keeps the capture flow on screen (saved, and recovery if storage fails).
+  const urlD = `https://alan.com/jobs/desktop-${stamp}`;
+  await desktop.goto(`${base}/share?${new URLSearchParams({ url: urlD })}`);
+  const desktopSaved = await desktop.locator('.saved-head').waitFor({ timeout: 15_000 }).then(() => true, () => false);
+  const desktopPage = await desktopContext.newPage();
+  await desktopPage.addInitScript(() => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function () {
+      throw new DOMException('Simulated full storage', 'QuotaExceededError');
+    };
+    void put;
+  });
+  await desktopPage.goto(`${base}/share?${new URLSearchParams({ url: `${urlD}-recover` })}`);
+  const desktopRecovery = await desktopPage.getByRole('dialog', { name: 'Save a link' }).waitFor({ timeout: 10_000 }).then(() => true, () => false);
+  const desktopShare = { desktopSaved, desktopRecovery, created: await count(`desktop-${stamp}`) };
+
+  const result = { shareOnce, storeFailure, shortcuts, desktopShare };
   console.log(JSON.stringify(result));
   await browser.close();
   const ok =
     shareOnce.created === 1 &&
-    shareOnce.path === '/' &&
+    shareOnce.path === '/capture' &&
     storeFailure.sheetOpened &&
     storeFailure.prefilled &&
     storeFailure.errorShown &&
@@ -85,7 +102,10 @@ async function main() {
     storeFailure.created === 1 &&
     shortcuts.phoneShortcut &&
     shortcuts.desktopFocused &&
-    shortcuts.desktopUrlCleaned;
+    shortcuts.desktopUrlCleaned &&
+    desktopShare.desktopSaved &&
+    desktopShare.desktopRecovery &&
+    desktopShare.created === 1;
   process.exitCode = ok ? 0 : 1;
 }
 

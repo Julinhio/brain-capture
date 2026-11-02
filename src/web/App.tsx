@@ -43,7 +43,9 @@ export function App() {
 
   if (me.isPending) return null;
   if (!signedIn) return <Login />;
-  if (path === '/share') return <CaptureHome share={readShare()} />;
+  // /share hands over to /capture (same element, so the screen state carries over), which shows
+  // the capture flow on every device, desktop included.
+  if (path === '/share' || path === '/capture') return <CaptureHome share={path === '/share' ? readShare() : undefined} />;
   if (desktop && path === '/') return <Dashboard />;
   if (path.startsWith('/history')) return <History />;
   return <CaptureHome />;
