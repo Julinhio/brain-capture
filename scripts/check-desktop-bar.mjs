@@ -142,6 +142,35 @@ async function main() {
   await page.unroute('**/api/captures');
   await bar.fill('');
 
+  // 7: a pasted multi-line note keeps its line breaks; Shift+Enter adds a line, Enter sends.
+  const n7 = `Bar multiline ${stamp}`;
+  await bar.fill(`${n7}\nsecond line`);
+  await bar.press('Shift+Enter');
+  await bar.type('third line');
+  await bar.press('Enter');
+  await status.getByText('Saved to').waitFor({ timeout: 15_000 });
+  const savedText = await page.evaluate(
+    async (q) => (await (await fetch(`/api/captures?status=all&q=${encodeURIComponent(q)}`)).json()).captures[0]?.text,
+    n7,
+  );
+  const multiline = { kept: savedText === `${n7}\nsecond line\nthird line` };
+
+  // 8: a failed "Mark done" in the drawer is reported, not silently ignored.
+  const id7 = await page.evaluate(
+    async (q) => (await (await fetch(`/api/captures?status=all&q=${encodeURIComponent(q)}`)).json()).captures[0].id,
+    n7,
+  );
+  await page.route(`**/api/captures/${id7}`, (route) =>
+    route.request().method() === 'PATCH'
+      ? route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'internal', message: 'Something went wrong on the server.' }) })
+      : route.continue(),
+  );
+  await page.goto(`${base}/?id=${id7}`);
+  await page.getByRole('button', { name: 'Mark done' }).click();
+  const drawerError = { shown: await page.getByRole('alert').filter({ hasText: 'Not changed' }).waitFor({ timeout: 10_000 }).then(() => true, () => false) };
+  await page.unroute(`**/api/captures/${id7}`);
+  await page.goto(base);
+
   // 4
   await page.evaluate(async (q) => {
     const r = await (await fetch(`/api/captures?status=all&q=${encodeURIComponent(q)}`)).json();
@@ -152,7 +181,7 @@ async function main() {
   const doneCard = page.locator('.card').filter({ hasText: n2 });
   const search = { found: await doneCard.waitFor({ timeout: 10_000 }).then(() => true, () => false), labelledDone: /\bdone\b/i.test(await doneCard.locator('.card-meta').innerText().catch(() => '')) };
 
-  const result = { storeFailure, doubleEnter, background, refused, busy, search };
+  const result = { storeFailure, doubleEnter, background, refused, busy, multiline, drawerError, search };
   console.log(JSON.stringify(result));
   await browser.close();
   const ok =
@@ -172,6 +201,8 @@ async function main() {
     busy.outboxAfter === 0 &&
     busy.draftCreated === 1 &&
     busy.refusedCreated === 0 &&
+    multiline.kept &&
+    drawerError.shown &&
     search.found &&
     search.labelledDone;
   process.exitCode = ok ? 0 : 1;

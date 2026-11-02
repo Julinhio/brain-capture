@@ -372,11 +372,20 @@ function CaptureBar() {
         <label htmlFor="quick-capture" className="sr-only">
           Quick capture
         </label>
-        <input
+        {/* A textarea, not an input: pasted notes keep their line breaks. Enter sends,
+            Shift+Enter adds a line, and Enter while an IME is composing is left alone. */}
+        <textarea
           id="quick-capture"
+          rows={1}
           placeholder="Type a thought or paste a link. It sorts itself."
           value={value}
           onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              e.currentTarget.form?.requestSubmit();
+            }
+          }}
           autoComplete="off"
         />
         <button type="submit" className="btn btn-primary btn-sm" disabled={!value.trim() || status.kind === 'saving'}>

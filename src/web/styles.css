@@ -868,7 +868,7 @@ a {
 }
 .capture-bar {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 8px;
   padding: 6px 6px 6px 16px;
   border-radius: var(--radius);
@@ -879,14 +879,20 @@ a {
 .capture-bar:focus-within {
   border-color: var(--accent);
 }
-.capture-bar input {
+.capture-bar textarea {
   flex: 1;
   min-width: 0;
   border: 0;
   background: transparent;
   outline: none;
   font-size: 15px;
+  line-height: 1.45;
   min-height: 36px;
+  max-height: 180px;
+  padding: 8px 0;
+  resize: none;
+  /* Grows with pasted multi-line notes where supported; one line otherwise. */
+  field-sizing: content;
 }
 .capture-bar-status {
   min-height: 20px;

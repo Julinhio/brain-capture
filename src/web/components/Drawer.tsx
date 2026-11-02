@@ -84,9 +84,15 @@ function DrawerActions({ capture }: { capture: Capture }) {
           <RotateCcw size={18} aria-hidden="true" /> Reopen
         </button>
       )}
-      <span className="hint drawer-note">
-        {capture.status === 'done' ? 'Marked done.' : capture.status === 'archived' ? 'Archived.' : 'Nothing here is mandatory.'}
-      </span>
+      {update.isError ? (
+        <span className="field-error drawer-note" role="alert">
+          Not changed. {update.error.message}
+        </span>
+      ) : (
+        <span className="hint drawer-note">
+          {capture.status === 'done' ? 'Marked done.' : capture.status === 'archived' ? 'Archived.' : 'Nothing here is mandatory.'}
+        </span>
+      )}
     </div>
   );
 }
