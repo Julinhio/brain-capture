@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { normalizeUrl } from '../../shared/text';
 import { Sheet } from './Sheet';
 
@@ -21,6 +21,10 @@ export function ComposeSheet({
   const [text, setText] = useState(initial?.text ?? '');
   const [url, setUrl] = useState(initial?.url ?? '');
   const [touched, setTouched] = useState(false);
+  // One sheet, one capture. The ref blocks a second tap fired before React re-renders
+  // (the sheet stays open until the outbox write finishes); the state disables the button.
+  const submittedRef = useRef(false);
+  const [submitted, setSubmitted] = useState(false);
 
   const normalized = kind === 'link' ? normalizeUrl(url) : null;
   const canSave = kind === 'link' ? Boolean(normalized) : text.trim().length > 0;
@@ -28,7 +32,9 @@ export function ComposeSheet({
   function submit(e: FormEvent) {
     e.preventDefault();
     setTouched(true);
-    if (!canSave) return;
+    if (!canSave || submittedRef.current) return;
+    submittedRef.current = true;
+    setSubmitted(true);
     onSubmit(kind === 'link' ? { text: text.trim(), url: normalized! } : { text: text.trim() });
   }
 
@@ -91,7 +97,7 @@ export function ComposeSheet({
           <button type="button" className="btn btn-ghost" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className="btn btn-primary" disabled={!canSave}>
+          <button type="submit" className="btn btn-primary" disabled={!canSave || submitted}>
             Save
           </button>
         </div>
