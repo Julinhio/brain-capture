@@ -4,7 +4,6 @@ import {
   ArrowUpRight,
   BriefcaseBusiness,
   CalendarDays,
-  Check,
   ChevronRight,
   FolderKanban,
   Lightbulb,
@@ -85,68 +84,95 @@ export function Today({ onOpen }: { onOpen: (id: string) => void }) {
   const events = calendar.data?.events ?? [];
   const next = events.find((e) => !e.allDay && Date.parse(e.end) > now.getTime());
   const ready = calendar.data?.state === 'ready' && !calendar.isError;
+  const jobsToReview =
+    !radars.isError && radars.data?.jobs.state === 'ready'
+      ? radars.data.jobs.segments.find((m) => m.key === 'a_voir')?.value
+      : undefined;
+  const leadsToReview =
+    !radars.isError && radars.data?.automata.state === 'ready'
+      ? radars.data.automata.segments.find((m) => m.key === 'a_verifier')?.value
+      : undefined;
   return (
     <div className="today-page">
-      <header className="today-heading">
-        <div>
-          <p className="mono">{now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
-          <h1>{now.getHours() < 18 ? 'Bonjour, Julien.' : 'Bonsoir, Julien.'}</h1>
-          <p className="lead">Ta journée en perspective.</p>
-        </div>
-        <button
-          className="btn btn-sm"
-          type="button"
-          onClick={() => {
-            void qc.invalidateQueries({ queryKey: ['calendar'] });
-            void qc.invalidateQueries({ queryKey: ['radars'] });
-            void qc.invalidateQueries({ queryKey: ['captures', 'today'] });
-            void qc.invalidateQueries({ queryKey: ['projects'] });
-          }}
-        >
-          <RefreshCw size={15} aria-hidden="true" />
-          Actualiser
-        </button>
-      </header>
-      {calendarResult === 'connected' && (
-        <p className="today-notice">
-          <Check size={16} aria-hidden="true" />
-          Google Calendar est connecté en lecture seule.
-        </p>
-      )}
+      <div className="today-intro">
+        <header className="today-heading today-welcome">
+          <div>
+            <p className="mono">
+              {now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+            </p>
+            <h1>{now.getHours() < 18 ? 'Bonjour, Julien.' : 'Bonsoir, Julien.'}</h1>
+            <p className="lead">Ta journée en perspective.</p>
+          </div>
+        </header>
+        <section className="morning-brief" aria-labelledby="brief-title">
+          <div className="brief-heading">
+            <h2 id="brief-title">
+              <Sparkles size={16} aria-hidden="true" />
+              Le fil du jour
+            </h2>
+            <button
+              className="brief-refresh"
+              type="button"
+              aria-label="Actualiser"
+              onClick={() => {
+                void qc.invalidateQueries({ queryKey: ['calendar'] });
+                void qc.invalidateQueries({ queryKey: ['radars'] });
+                void qc.invalidateQueries({ queryKey: ['captures', 'today'] });
+                void qc.invalidateQueries({ queryKey: ['projects'] });
+              }}
+            >
+              <RefreshCw size={14} aria-hidden="true" />
+              Actualiser
+            </button>
+          </div>
+          <div className="brief-appointment">
+            <CalendarDays size={17} aria-hidden="true" />
+            {ready ? (
+              next ? (
+                <>
+                  <span className="brief-time">
+                    {Date.parse(next.start) <= now.getTime() ? 'En cours' : time(next.start)}
+                  </span>
+                  <strong>{next.title}</strong>
+                </>
+              ) : (
+                <span>Plus de rendez-vous aujourd’hui</span>
+              )
+            ) : (
+              <span>
+                {calendar.isPending
+                  ? 'Lecture du calendrier…'
+                  : calendar.isError || calendar.data?.state === 'error'
+                    ? 'Calendrier indisponible'
+                    : 'Calendrier à connecter'}
+              </span>
+            )}
+          </div>
+          <dl className="brief-metrics">
+            <div data-axis="jobs">
+              <dt>Offres à voir</dt>
+              <dd>{jobsToReview ?? '—'}</dd>
+            </div>
+            <div data-axis="automata">
+              <dt>Prospects à vérifier</dt>
+              <dd>{leadsToReview ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Captures hier</dt>
+              <dd>{!today.isError ? (today.data?.yesterday.count ?? '—') : '—'}</dd>
+            </div>
+            <div>
+              <dt>Projets en cours</dt>
+              <dd>{projects.isSuccess ? active.length : '—'}</dd>
+            </div>
+          </dl>
+        </section>
+      </div>
       {calendarResult === 'failed' && (
         <p className="field-error" role="alert">
           La connexion Google n’a pas abouti. Tu peux réessayer ci-dessous.
         </p>
       )}
-      <section className="morning-brief" aria-labelledby="brief-title">
-        <div className="brief-mark">
-          <Sparkles size={22} aria-hidden="true" />
-        </div>
-        <div>
-          <h2 id="brief-title">Le fil du jour</h2>
-          <p>
-            {ready ? (
-              next ? (
-                <>
-                  Ton prochain rendez-vous : <strong>{next.title}</strong>,{' '}
-                  {Date.parse(next.start) <= now.getTime() ? 'en cours' : `à ${time(next.start)}`}.{' '}
-                </>
-              ) : (
-                'Aucun autre rendez-vous horaire aujourd’hui. '
-              )
-            ) : (
-              'Ton calendrier donnera le rythme de la journée une fois connecté. '
-            )}
-            {today.data
-              ? `${today.data.yesterday.count} capture${today.data.yesterday.count > 1 ? 's' : ''} hier. `
-              : ''}
-            {projects.isSuccess
-              ? `${active.length} projet${active.length > 1 ? 's' : ''} en cours${upcoming.length ? `, ${upcoming.length} à venir` : ''}.`
-              : ''}
-          </p>
-          <span className="brief-source">Repères issus de tes données, sans priorité imposée.</span>
-        </div>
-      </section>
       <CalendarPanel
         data={calendar.isError ? undefined : calendar.data}
         loading={calendar.isPending}

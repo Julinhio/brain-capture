@@ -11,11 +11,27 @@
 .today-heading .lead { margin: 0; color: var(--text-muted); }
 .today-heading .mono { color: var(--accent); }
 .today-notice { display: flex; gap: 8px; color: var(--success); }
-.morning-brief { display: flex; gap: 18px; padding: 24px; background: var(--accent-soft); border: 1px solid rgba(255,173,82,.18); border-radius: var(--radius-lg); margin-bottom: 28px; }
-.brief-mark { color: var(--accent); padding-top: 4px; }
-.morning-brief h2 { font-size: 15px; margin: 0 0 6px; color: var(--accent); }
-.morning-brief p { font-size: 17px; line-height: 1.7; margin: 0 0 10px; max-width: 850px; }
-.brief-source, .calendar-freshness { color: var(--text-faint); font-size: 12px; }
+.today-intro { display: grid; grid-template-columns: minmax(260px, .8fr) minmax(490px, 1.2fr); align-items: center; gap: 40px; margin: 20px 0 28px; }
+.today-welcome { margin: 0; }
+.morning-brief { padding: 18px 22px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); min-width: 0; }
+.brief-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.morning-brief h2 { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 550; margin: 0; color: var(--accent); }
+.brief-refresh { display: inline-flex; align-items: center; gap: 6px; padding: 4px 0 4px 8px; border: 0; background: none; color: var(--text-muted); font-size: 11px; cursor: pointer; }
+.brief-refresh:hover { color: var(--accent); }
+.brief-appointment { display: flex; align-items: center; gap: 9px; font-size: 13px; min-width: 0; }
+.brief-appointment > svg { color: var(--text-faint); flex-shrink: 0; }
+.brief-appointment strong { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brief-time { color: var(--accent); font-family: var(--font-mono); font-size: 12px; flex-shrink: 0; }
+.brief-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 15px 0 0; padding-top: 13px; border-top: 1px solid rgba(255,173,82,.12); }
+.brief-metrics > div { display: flex; flex-direction: column-reverse; gap: 3px; }
+.brief-metrics dt { font-size: 11px; color: var(--text-muted); }
+.brief-metrics dd { margin: 0; font-size: 22px; font-weight: 550; line-height: 1.1; font-variant-numeric: tabular-nums; letter-spacing: -.04em; }
+.brief-metrics [data-axis=jobs] dd { color: var(--cat-jobs); }
+.brief-metrics [data-axis=automata] dd { color: var(--cat-automata); }
+.calendar-freshness { color: var(--text-faint); font-size: 12px; }
+@media (max-width: 1200px) { .today-intro { grid-template-columns: minmax(220px, .75fr) minmax(400px, 1.25fr); gap: 22px; }.today-welcome h1 { font-size: 32px; }.brief-metrics { gap: 10px; } }
+@media (max-width: 959px) { .today-intro { grid-template-columns: 1fr; gap: 22px; }.brief-refresh { min-height: 36px; }.morning-brief { padding: 18px; } }
+@media (max-width: 480px) { .brief-metrics { grid-template-columns: 1fr 1fr; gap: 16px; }.brief-appointment strong { white-space: normal; overflow-wrap: anywhere; } }
 .today-section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 32px 0 18px; }
 .today-section-head h2, .project-editor h2 { font-size: 20px; display: flex; align-items: center; gap: 10px; margin: 0; letter-spacing: -.025em; }
 .today-section-head .mono { margin: 0 0 6px; }
@@ -1060,10 +1076,12 @@ a {
   isolation: isolate;
   padding: 20px 40px 64px;
   min-width: 0;
-  max-width: 1280px;
+  width: 100%;
   background:
-    radial-gradient(ellipse 45% 240px at 87% 22%, rgba(255, 147, 16, 0.16), transparent 80%),
-    radial-gradient(ellipse 60% 220px at 40% 8%, rgba(233, 73, 14, 0.12), transparent 85%);
+    radial-gradient(ellipse 55vw 420px at 90% 34%, rgba(255, 147, 16, 0.12), transparent 80%),
+    radial-gradient(ellipse 65vw 360px at 40% 8%, rgba(233, 73, 14, 0.12), transparent 85%),
+    var(--bg);
+  background-attachment: fixed;
 }
 .desk-main::before {
   content: '';
@@ -1075,9 +1093,12 @@ a {
     linear-gradient(rgba(255, 184, 98, 0.075) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 184, 98, 0.075) 1px, transparent 1px);
   background-size: 64px 64px;
-  mask-image: linear-gradient(#000, transparent 52%);
+
 }
 .desk-bar {
+  width: 100%;
+  max-width: 1240px;
+  margin-inline: auto;
   display: flex;
   align-items: flex-start;
   gap: 12px;
