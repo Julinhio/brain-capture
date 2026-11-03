@@ -6,6 +6,7 @@ import type { Capture } from '../../shared/types';
 import { useUpdateCapture } from '../lib/useCaptures';
 import { CategoryOptions } from './CategoryPicker';
 import { CategoryIcon } from './CategoryIcon';
+import { ProjectLinks } from './ProjectLinks';
 
 const SOURCE_LABEL = { voice: 'Transcription', text: 'Note', link: 'Note' } as const;
 
@@ -195,6 +196,7 @@ export function CaptureView({
         {capture.kind === 'voice' && <p className="hint">Audio deleted after transcription. Only the text is kept.</p>}
       </section>
 
+      <ProjectLinks captureId={capture.id} />
       {update.isError && (
         <p className="field-error" role="alert" style={{ marginTop: 16 }}>
           {update.error.message}

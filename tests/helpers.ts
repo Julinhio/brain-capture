@@ -4,7 +4,7 @@ import type { Ai, ClassifyInput, ClassifyResult } from '../src/server/ai/types.j
 import { AiRejectedError, AiUnavailableError } from '../src/server/ai/types.js';
 import { buildApp } from '../src/server/app.js';
 import { hashPassword } from '../src/server/auth/password.js';
-import { loadConfig } from '../src/server/config.js';
+import { loadConfig, type Config } from '../src/server/config.js';
 import { openDb, type Db } from '../src/server/db/client.js';
 import { users } from '../src/server/db/schema.js';
 
@@ -46,10 +46,10 @@ export interface TestContext {
 
 export const PASSWORD = 'correct horse battery staple';
 
-export async function setup(): Promise<TestContext> {
+export async function setup(configOverrides: Partial<Config> = {}): Promise<TestContext> {
   const { db, close } = await openDb('pglite:memory');
   const ai = new FakeAi();
-  const config = loadConfig({ NODE_ENV: 'test', DATABASE_URL: 'pglite:memory' });
+  const config = { ...loadConfig({ NODE_ENV: 'test', DATABASE_URL: 'pglite:memory' }), ...configOverrides };
   const app = await buildApp({ db, ai, config });
   return {
     app,

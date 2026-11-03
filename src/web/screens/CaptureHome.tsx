@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Check, Clock, Download, Link2, Mic, MicOff, Share2, Square, Type, X } from 'lucide-react';
+import { AlertTriangle, CalendarDays, Check, Clock, Download, Link2, Mic, MicOff, Share2, Square, Type, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { Capture } from '../../shared/types';
 import { CaptureView } from '../components/CaptureView';
@@ -36,6 +36,7 @@ export function TopBar() {
         <span className="brand-mark" aria-hidden="true" />
         Brain Capture
       </button>
+      <button type="button" className="pill-btn" onClick={() => navigate('/?view=today')} aria-label="Aujourd’hui"><CalendarDays size={16} aria-hidden="true" /></button>
       <button type="button" className="pill-btn" onClick={() => navigate('/history')}>
         <Clock size={16} aria-hidden="true" />
         History

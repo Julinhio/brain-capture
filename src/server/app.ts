@@ -15,6 +15,9 @@ import type { Config } from './config.js';
 import type { Db } from './db/client.js';
 import { users } from './db/schema.js';
 import { sendError } from './http.js';
+import { registerProjectRoutes } from './dashboard/projects.js';
+import { registerRadarRoutes } from './dashboard/radars.js';
+import { registerCalendarRoutes } from './dashboard/calendar.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -39,7 +42,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     trustProxy: config.env === 'production',
     bodyLimit: 1024 * 1024,
     logger: deps.logger
-      ? { redact: ['req.headers.cookie', 'req.headers.authorization', 'res.headers["set-cookie"]'] }
+      ? { redact: ['req.headers.cookie', 'req.headers.authorization', 'res.headers["set-cookie"]'], serializers: { req: (req: { method: string; url: string }) => ({ method: req.method, url: req.url.split('?')[0] }) } }
       : false,
   });
 
@@ -74,6 +77,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   app.addHook('preHandler', async (req, reply) => {
     if (!req.url.startsWith('/api/')) return;
+    reply.header('Cache-Control', 'no-store');
     const token = req.cookies[SESSION_COOKIE];
     if (token) {
       const user = await resolveSession(db, token);
@@ -123,6 +127,9 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   registerCaptureRoutes(app, deps);
   registerBackupRoutes(app, deps);
+  registerProjectRoutes(app, deps);
+  registerRadarRoutes(app, deps);
+  registerCalendarRoutes(app, deps);
 
   app.setErrorHandler((err: Error & { statusCode?: number; validation?: unknown }, req, reply) => {
     if (err.statusCode && err.statusCode < 500) {

@@ -1,10 +1,11 @@
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { CATEGORIES } from '../../shared/categories.js';
 import type { AppDeps } from '../app.js';
 import type { Db } from '../db/client.js';
-import { captures, type CaptureRow } from '../db/schema.js';
+import { captures, projects, projectCaptures, type CaptureRow } from '../db/schema.js';
+import { PROJECT_STATES } from '../../shared/dashboard.js';
 import { sendError } from '../http.js';
 
 /**
@@ -49,6 +50,9 @@ const exportFile = z.object({
   version: z.literal(EXPORT_VERSION),
   exportedAt: z.iso.datetime(),
   captures: z.array(exportedCapture).max(100_000),
+  // Additive v1 extension: old capture-only files remain restorable.
+  projects: z.array(z.object({ id: z.uuid(), name: z.string().min(1).max(120), intention: z.string().max(2000), state: z.enum(PROJECT_STATES), nextStep: z.string().max(500), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime() })).max(100_000).default([]),
+  projectLinks: z.array(z.object({ projectId: z.uuid(), captureId: z.uuid() })).max(100_000).default([]),
 });
 
 function toExported(row: CaptureRow): ExportedCapture {
@@ -127,6 +131,11 @@ export function registerBackupRoutes(app: FastifyInstance, { db, config }: AppDe
       exportedAt,
       appVersion: config.appVersion,
       captures: await exportCaptures(db, req.user!.id),
+      projects: (await db.select().from(projects).where(eq(projects.ownerId, req.user!.id)).orderBy(asc(projects.createdAt), asc(projects.id))).map(({ ownerId: _owner, createdAt, updatedAt, ...p }) => ({ ...p, createdAt: createdAt.toISOString(), updatedAt: updatedAt.toISOString() })),
+      projectLinks: await db.select({ projectId: projectCaptures.projectId, captureId: projectCaptures.captureId }).from(projectCaptures)
+        .innerJoin(projects, eq(projects.id, projectCaptures.projectId)).innerJoin(captures, eq(captures.id, projectCaptures.captureId))
+        .where(and(eq(projects.ownerId, req.user!.id), eq(captures.ownerId, req.user!.id)))
+        .orderBy(asc(projectCaptures.projectId), asc(projectCaptures.captureId)),
     };
     if ((req.query as { download?: string }).download === '1') {
       const stamp = exportedAt.slice(0, 16).replace(/[:T]/g, '-');
@@ -139,7 +148,20 @@ export function registerBackupRoutes(app: FastifyInstance, { db, config }: AppDe
   app.post('/api/import', { bodyLimit: IMPORT_BODY_LIMIT }, async (req, reply) => {
     const parsed = exportFile.safeParse(req.body);
     if (!parsed.success) return sendError(reply, 400, 'invalid_input', 'This is not a Brain Capture backup file.');
-    const result = await importCaptures(db, req.user!.id, parsed.data.captures);
+    const ownerId = req.user!.id;
+    const result = await db.transaction(async (tx) => {
+      const result = await importCaptures(tx as unknown as Db, ownerId, parsed.data.captures);
+      for (const p of parsed.data.projects) {
+        await tx.insert(projects).values({ ...p, ownerId, createdAt: new Date(p.createdAt), updatedAt: new Date(p.updatedAt) }).onConflictDoNothing();
+      }
+      for (const link of parsed.data.projectLinks) {
+        const [project] = await tx.select({ id: projects.id }).from(projects).where(and(eq(projects.id, link.projectId), eq(projects.ownerId, ownerId)));
+        const original = parsed.data.captures.find((c) => c.id === link.captureId);
+        const [capture] = await tx.select({ id: captures.id }).from(captures).where(and(eq(captures.ownerId, ownerId), original ? or(eq(captures.id, link.captureId), eq(captures.clientId, original.clientId)) : eq(captures.id, link.captureId)));
+        if (project && capture) await tx.insert(projectCaptures).values({ projectId: project.id, captureId: capture.id }).onConflictDoNothing();
+      }
+      return result;
+    });
     return { ...result, total: parsed.data.captures.length };
   });
 }
