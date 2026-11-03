@@ -53,6 +53,15 @@ describe('projects and dashboard ownership', () => {
       (await call('PATCH', `/api/projects/${id}`, { state: 'active', nextStep: 'Build one useful screen' })).statusCode,
     ).toBe(200);
     expect((await call('PATCH', `/api/projects/${id}`, { name: 'stolen' }, other)).statusCode).toBe(404);
+    expect((await call('PATCH', `/api/projects/${id}`, { intention: 'Keep this purpose' })).statusCode).toBe(200);
+    expect((await call('PATCH', `/api/projects/${id}`, { name: 'Renamed' })).statusCode).toBe(200);
+    expect((await call('GET', '/api/projects')).json().projects[0]).toMatchObject({
+      name: 'Renamed',
+      intention: 'Keep this purpose',
+      state: 'active',
+      nextStep: 'Build one useful screen',
+    });
+    expect((await call('PATCH', `/api/projects/${id}`, {})).statusCode).toBe(400);
     expect((await call('GET', `/api/projects/${id}/captures`, undefined, other)).statusCode).toBe(404);
     expect((await call('PUT', `/api/projects/${id}/captures/${note.id}`, undefined, other)).statusCode).toBe(404);
     const foreign = (
@@ -176,12 +185,10 @@ describe('calendar security and event reading', () => {
         calendarId: 'primary',
       },
     });
-    const spy = vi
-      .spyOn(OAuth2Client.prototype, 'getToken')
-      .mockResolvedValue({
-        tokens: { refresh_token: 'secret-refresh', scope: 'https://www.googleapis.com/auth/calendar.events.readonly' },
-        res: null,
-      } as never);
+    const spy = vi.spyOn(OAuth2Client.prototype, 'getToken').mockResolvedValue({
+      tokens: { refresh_token: 'secret-refresh', scope: 'https://www.googleapis.com/auth/calendar.events.readonly' },
+      res: null,
+    } as never);
     try {
       await createUser(ctx.db, 'oauth@example.com');
       const cookie = await login(ctx.app, 'oauth@example.com');

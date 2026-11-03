@@ -49,18 +49,16 @@ async function main() {
             { key: 'mission', label: 'Missions', value: 0 },
             { key: 'ecartee', label: 'Écartées', value: 4 },
           ];
-    res
-      .writeHead(200, { 'Content-Type': 'application/json' })
-      .end(
-        JSON.stringify({
-          version: 1,
-          checkedAt: new Date().toISOString(),
-          total: segments.reduce((n, m) => n + m.value, 0),
-          new24h: kind === 'jobs' ? 14 : 6,
-          segments,
-          extra: [],
-        }),
-      );
+    res.writeHead(200, { 'Content-Type': 'application/json' }).end(
+      JSON.stringify({
+        version: 1,
+        checkedAt: new Date().toISOString(),
+        total: segments.reduce((n, m) => n + m.value, 0),
+        new24h: kind === 'jobs' ? 14 : 6,
+        segments,
+        extra: [],
+      }),
+    );
   });
   await new Promise((resolve) => sources.listen(0, '127.0.0.1', resolve));
   try {
@@ -202,8 +200,16 @@ async function main() {
     await page.getByRole('button', { name: 'Close detail' }).click();
     await page.getByRole('heading', { name: 'Le projet', exact: true }).waitFor();
     await page.screenshot({ path: '.shots/projects-desktop.jpg', fullPage: true, type: 'jpeg', quality: 75 });
+    // Creating from an existing project's editor must open a clean form and never
+    // update the project that was being viewed.
+    await page.getByRole('button', { name: 'Nouveau projet', exact: true }).click();
+    if (await page.getByLabel('Nom', { exact: true }).inputValue()) throw new Error('New project kept the old name');
+    await page.getByLabel('Nom', { exact: true }).fill('Second projet indépendant');
+    await page.getByRole('button', { name: 'Enregistrer le projet' }).click();
+    await page.getByRole('button', { name: 'Second projet indépendant', exact: false }).waitFor();
+    await page.getByRole('button', { name: 'Projet créé au navigateur', exact: false }).waitFor();
     const backup = await (await page.request.get(`${base}/api/export`)).json();
-    if (backup.projects.length !== 4 || backup.projectLinks.length !== 2)
+    if (backup.projects.length !== 5 || backup.projectLinks.length !== 2)
       throw new Error('Project backup does not match UI');
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${base}/?view=today`);
@@ -222,6 +228,7 @@ async function main() {
           everything: true,
           projectCreateAndLink: true,
           projectDrawerReturn: true,
+          newProjectClearsExistingSelection: true,
           backupIncludesProjects: true,
           mobileNoOverflow: true,
           capturePreserved: true,

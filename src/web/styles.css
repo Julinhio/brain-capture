@@ -96,6 +96,11 @@
 @media (max-width: 1200px) { .project-board { grid-template-columns: 1fr 1fr; }.radar-breakdown { grid-template-columns: 1fr; } }
 @media (max-width: 959px) { .desk { display: block !important; }.desk-side { position: static !important; width: auto !important; height: auto !important; padding: 16px !important; }.desk-side nav { display: flex; overflow-x: auto; gap: 6px; }.desk-side .side-title, .desk-side .side-rule, .desk-side .side-sync, .desk-side .app-version, .desk-side .side-backup { display: none; }.desk-side .side-link { width: auto; flex-shrink: 0; }.desk-brand { margin: 0 0 10px !important; }.desk-main { padding: 16px !important; margin: 0 !important; }.desk-bar { flex-wrap: wrap; }.desk-bar .search { flex: 1; }.today-heading { gap: 12px; }.today-heading h1 { font-size: 28px; }.today-heading > .btn { flex-shrink: 0; }.radar-grid, .today-project-list, .yesterday-grid { grid-template-columns: 1fr; }.radar-breakdown { grid-template-columns: 1fr 1fr; }.calendar-panel { padding: 18px; }.calendar-controls { gap: 8px; }.calendar-panel .today-section-head { align-items: start; flex-wrap: wrap; }.morning-brief { padding: 18px; }.morning-brief p { font-size: 15px; }.today-section-head { flex-wrap: wrap; }.project-editor { padding: 16px; }.project-form-grid { grid-template-columns: 1fr; gap: 0; } }
 @media (max-width: 480px) { .project-board { grid-template-columns: 1fr; }.today-heading { align-items: start; }.today-heading > .btn { font-size: 12px; }.radar-breakdown { grid-template-columns: 1fr; }.project-summary { gap: 24px; }.day-stats { gap: 12px; }.calendar-controls > .hint { font-size: 11px; } }
+@media (max-width: 959px) {
+  /* Phones keep the dedicated capture flow; don't squeeze the desktop composer. */
+  .desk-bar .capture-bar-wrap { display: none; }
+  .desk-bar .search { flex-basis: 100%; width: 100%; }
+}
 
 /* ---------- Tokens ---------- */
 :root {

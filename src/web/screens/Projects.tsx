@@ -24,7 +24,14 @@ export function Projects({ onOpen }: { onOpen: (id: string) => void }) {
           <h1>Mes projets</h1>
           <p className="lead">Une place pour construire. Une réserve pour imaginer.</p>
         </div>
-        <button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={() => {
+            navigate('/?view=workspace');
+            setCreating(true);
+          }}
+        >
           <Plus size={18} aria-hidden="true" />
           Nouveau projet
         </button>

@@ -11,9 +11,17 @@ import { dayWindow } from './day.js';
 
 const fields = z.object({
   name: z.string().trim().min(1).max(120),
-  intention: z.string().trim().max(2000).default(''),
-  state: z.enum(PROJECT_STATES).default('idea'),
-  nextStep: z.string().trim().max(500).default(''),
+  intention: z.string().trim().max(2000),
+  state: z.enum(PROJECT_STATES),
+  nextStep: z.string().trim().max(500),
+});
+// Defaults belong only to creation. In Zod 4 an optional field with a default
+// still gets filled, which would silently reset omitted fields during PATCH.
+const createFields = fields.extend({
+  intention: fields.shape.intention.default(''),
+  state: fields.shape.state.default('idea'),
+  nextStep: fields.shape.nextStep.default(''),
+  captureId: z.uuid().optional(),
 });
 const params = z.object({ id: z.uuid() });
 const linkParams = z.object({ id: z.uuid(), captureId: z.uuid() });
@@ -39,7 +47,7 @@ export async function listProjects(db: Db, ownerId: string): Promise<Project[]> 
 export function registerProjectRoutes(app: FastifyInstance, { db }: AppDeps) {
   app.get('/api/projects', async (req) => ({ projects: await listProjects(db, req.user!.id) }));
   app.post('/api/projects', async (req, reply) => {
-    const parsed = fields.extend({ captureId: z.uuid().optional() }).safeParse(req.body);
+    const parsed = createFields.safeParse(req.body);
     if (!parsed.success) return sendError(reply, 400, 'invalid_input', 'Le projet est incomplet ou trop long.');
     const { captureId, ...input } = parsed.data;
     if (captureId) {
