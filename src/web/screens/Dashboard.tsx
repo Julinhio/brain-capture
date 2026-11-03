@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Archive, ArrowRight, CheckCheck, Download, LayoutGrid, Search, X } from 'lucide-react';
+import { Archive, ArrowRight, CalendarDays, CheckCheck, Download, FolderKanban, LayoutGrid, Search, X } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { CATEGORIES, CATEGORY_HINTS, CATEGORY_LABELS, isCategory, type Category } from '../../shared/categories';
 import { extractUrl, hostOf, normalizeUrl } from '../../shared/text';
@@ -11,13 +11,17 @@ import { navigate, useSearchParam } from '../lib/router';
 import { clockTime, formatDuration, relativeTime } from '../lib/time';
 import { useCapturePages, useOverview } from '../lib/useCaptures';
 import { versionLabel } from '../version';
+import { Today } from './Today';
+import { Projects } from './Projects';
 
-type View = { kind: 'home' } | { kind: 'category'; category: Category } | { kind: 'status'; status: Exclude<CaptureStatus, 'open'> };
+type View = { kind: 'home' } | { kind: 'today' } | { kind: 'projects' } | { kind: 'category'; category: Category } | { kind: 'status'; status: Exclude<CaptureStatus, 'open'> };
 
 function parseView(raw: string | null): View {
   if (isCategory(raw)) return { kind: 'category', category: raw };
   if (raw === 'done' || raw === 'archived') return { kind: 'status', status: raw };
-  return { kind: 'home' };
+  if (raw === 'everything') return { kind: 'home' };
+  if (raw === 'workspace') return { kind: 'projects' };
+  return { kind: 'today' };
 }
 
 function href(params: { view?: string | null; id?: string | null; q?: string | null }): string {
@@ -33,11 +37,13 @@ export function Dashboard() {
   const rawView = useSearchParam('view');
   const openId = useSearchParam('id');
   const q = useSearchParam('q') ?? '';
+  const selectedProject = useSearchParam('project');
   const view = parseView(rawView);
   const overview = useOverview();
 
-  const open = (id: string) => navigate(href({ view: rawView, q, id }));
-  const close = () => navigate(href({ view: rawView, q }), { replace: true });
+  const detailHref = (id?: string) => { const url = new URL(href({ view: rawView, q, id }), window.location.origin); if (selectedProject) url.searchParams.set('project', selectedProject); return url.pathname + url.search; };
+  const open = (id: string) => navigate(detailHref(id));
+  const close = () => navigate(detailHref(), { replace: true });
 
   return (
     <div className="desk">
@@ -47,7 +53,10 @@ export function Dashboard() {
           Brain Capture
         </button>
         <nav aria-label="Sections">
-          <SideLink active={view.kind === 'home' && !q} onClick={() => navigate('/')} label="Everything" count={overview.data ? sum(overview.data.counts) : undefined} />
+          <SideLink active={view.kind === 'today' && !q} onClick={() => navigate('/?view=today')} label="Aujourd’hui" />
+          <button type="button" className="side-link mobile-capture-link" onClick={() => navigate('/capture')}>Capturer</button>
+          <SideLink active={view.kind === 'projects' && !q} onClick={() => navigate('/?view=workspace')} label="Mes projets" />
+          <SideLink active={view.kind === 'home' && !q} onClick={() => navigate('/?view=everything')} label="Everything" count={overview.data ? sum(overview.data.counts) : undefined} />
           <p className="mono side-title">Categories</p>
           {CATEGORIES.map((c) => (
             <SideLink
@@ -89,6 +98,10 @@ export function Dashboard() {
         {q ? (
           // Search looks everywhere (open, done, archived): a finished item is still worth finding.
           <ListView title={`Results for “${q}”`} status="all" q={q} onOpen={open} />
+        ) : view.kind === 'today' ? (
+          <Today onOpen={open} />
+        ) : view.kind === 'projects' ? (
+          <Projects onOpen={open} />
         ) : view.kind === 'home' ? (
           <Home onOpen={open} />
         ) : view.kind === 'category' ? (
@@ -110,7 +123,7 @@ function sum(counts: Record<Category, number>): number {
 function SideLink({ label, count, active, onClick, cat }: { label: string; count?: number; active: boolean; onClick: () => void; cat?: Category }) {
   return (
     <button type="button" className="side-link" aria-current={active ? 'page' : undefined} onClick={onClick} data-cat={cat}>
-      {cat ? <CategoryIcon category={cat} /> : label === 'Everything' ? <LayoutGrid size={18} strokeWidth={1.7} aria-hidden="true" /> : label === 'Done' ? <CheckCheck size={18} strokeWidth={1.7} aria-hidden="true" /> : <Archive size={18} strokeWidth={1.7} aria-hidden="true" />}
+      {cat ? <CategoryIcon category={cat} /> : label === 'Aujourd’hui' ? <CalendarDays size={18} aria-hidden="true" /> : label === 'Mes projets' ? <FolderKanban size={18} aria-hidden="true" /> : label === 'Everything' ? <LayoutGrid size={18} strokeWidth={1.7} aria-hidden="true" /> : label === 'Done' ? <CheckCheck size={18} strokeWidth={1.7} aria-hidden="true" /> : <Archive size={18} strokeWidth={1.7} aria-hidden="true" />}
       <span className="grow">{label}</span>
       {count !== undefined && <span className="mono side-count">{count}</span>}
     </button>
@@ -191,7 +204,7 @@ function ListView({
   return (
     <>
       <header className="desk-hello">
-        <button type="button" className="link-btn" onClick={() => navigate('/')}>
+        <button type="button" className="link-btn" onClick={() => navigate('/?view=everything')}>
           ← Everything
         </button>
         <h1 className="list-title" data-cat={category}>

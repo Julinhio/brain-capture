@@ -72,3 +72,27 @@ export const captures = pgTable(
 
 export type UserRow = typeof users.$inferSelect;
 export type CaptureRow = typeof captures.$inferSelect;
+
+export const projects = pgTable('projects', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ownerId: uuid('owner_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  intention: text('intention').notNull().default(''),
+  state: text('state').notNull().default('idea'),
+  nextStep: text('next_step').notNull().default(''),
+  createdAt: timestamp('created_at', { withTimezone: true, precision: 3 }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true, precision: 3 }).notNull().defaultNow(),
+}, (t) => [index('projects_owner_idx').on(t.ownerId)]);
+
+// A capture can contribute to several projects without changing its category or status.
+export const projectCaptures = pgTable('project_captures', {
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  captureId: uuid('capture_id').notNull().references(() => captures.id, { onDelete: 'cascade' }),
+}, (t) => [uniqueIndex('project_captures_unique').on(t.projectId, t.captureId)]);
+
+// OAuth refresh tokens are encrypted with a separate server key, never exported.
+export const calendarConnections = pgTable('calendar_connections', {
+  ownerId: uuid('owner_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  refreshToken: text('refresh_token').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

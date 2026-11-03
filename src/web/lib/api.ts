@@ -1,5 +1,6 @@
 import type { ApiError, ApiErrorCode, Capture, CaptureStatus, Me } from '../../shared/types';
 import type { Category } from '../../shared/categories';
+import type { CalendarDay, Project, ProjectState, RadarSummary, TodayData } from '../../shared/dashboard';
 
 export interface Overview {
   counts: Record<Category, number>;
@@ -67,6 +68,17 @@ async function request<T>(method: string, path: string, body?: unknown | FormDat
 }
 
 export const api = {
+  today: (timeZone: string) => request<TodayData>('GET', `/api/today?${new URLSearchParams({ timeZone })}`),
+  radars: () => request<{ jobs: RadarSummary; automata: RadarSummary }>('GET', '/api/radars'),
+  calendarDay: (timeZone: string) => request<CalendarDay>('GET', `/api/calendar/day?${new URLSearchParams({ timeZone })}`),
+  connectCalendar: () => request<{ url: string }>('POST', '/api/calendar/connect'),
+  disconnectCalendar: () => request<{ ok: true }>('DELETE', '/api/calendar/connection'),
+  projects: () => request<{ projects: Project[] }>('GET', '/api/projects').then((r) => r.projects),
+  createProject: (input: { name: string; intention: string; state: ProjectState; nextStep: string; captureId?: string }) => request<{ id: string }>('POST', '/api/projects', input),
+  updateProject: (id: string, patch: Partial<Pick<Project, 'name' | 'intention' | 'state' | 'nextStep'>>) => request<{ id: string }>('PATCH', `/api/projects/${id}`, patch),
+  projectCaptures: (id: string) => request<{ captures: Capture[] }>('GET', `/api/projects/${id}/captures`).then((r) => r.captures),
+  captureProjects: (id: string) => request<{ projectIds: string[] }>('GET', `/api/captures/${id}/projects`).then((r) => r.projectIds),
+  linkProject: (projectId: string, captureId: string, linked: boolean) => request<{ ok: true }>(linked ? 'PUT' : 'DELETE', `/api/projects/${projectId}/captures/${captureId}`),
   me: () => request<Me | null>('GET', '/api/me'),
   login: (email: string, password: string) => request<Me>('POST', '/api/auth/login', { email, password }),
   logout: () => request<{ ok: true }>('POST', '/api/auth/logout'),
