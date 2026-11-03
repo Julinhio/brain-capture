@@ -11,7 +11,7 @@ export interface Config {
   appVersion: string;
   /** Origins allowed to send state-changing requests; empty means "same host as the request". */
   allowedOrigins: string[];
-  calendar: { clientId: string; clientSecret: string; redirectUri: string; encryptionKey: string; calendarId: string } | null;
+  calendar: { clientId: string; clientSecret: string; redirectUri: string; encryptionKey: string } | null;
   radars: { jobs: { token: string; url: string | null }; automata: { token: string; url: string | null } };
 }
 
@@ -62,7 +62,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       .split(',')
       .map((o) => o.trim())
       .filter(Boolean),
-    calendar: googleParts.every(Boolean) ? { clientId: env.GOOGLE_CLIENT_ID!, clientSecret: env.GOOGLE_CLIENT_SECRET!, redirectUri: env.GOOGLE_REDIRECT_URI!, encryptionKey: env.CALENDAR_ENCRYPTION_KEY!, calendarId: env.GOOGLE_CALENDAR_ID || 'primary' } : null,
+    calendar: googleParts.every(Boolean) ? { clientId: env.GOOGLE_CLIENT_ID!, clientSecret: env.GOOGLE_CLIENT_SECRET!, redirectUri: env.GOOGLE_REDIRECT_URI!, encryptionKey: env.CALENDAR_ENCRYPTION_KEY! } : null,
     radars: { jobs: radar(env.RADAR_JOBS_TOKEN, env.RADAR_JOBS_URL), automata: radar(env.RADAR_AUTOMATA_TOKEN, env.RADAR_AUTOMATA_URL) },
   };
 }

@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, index, integer, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { CATEGORIES } from '../../shared/categories.js';
 
 export const categoryEnum = pgEnum('category', CATEGORIES);
@@ -94,5 +94,8 @@ export const projectCaptures = pgTable('project_captures', {
 export const calendarConnections = pgTable('calendar_connections', {
   ownerId: uuid('owner_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
   refreshToken: text('refresh_token').notNull(),
+  grantedScopes: text('granted_scopes').notNull().default(''),
+  // null follows all owned calendars; [] deliberately selects none.
+  calendarIds: jsonb('calendar_ids').$type<string[] | null>(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

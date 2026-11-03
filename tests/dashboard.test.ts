@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { OAuth2Client } from 'google-auth-library';
 import { eq } from 'drizzle-orm';
 import { dayWindow } from '../src/server/dashboard/day.js';
-import { calendarEvents, seal, unseal } from '../src/server/dashboard/calendar.js';
+import { CALENDAR_SCOPES, calendarEvents, seal, unseal } from '../src/server/dashboard/calendar.js';
 import { radarPayload } from '../src/server/dashboard/radars.js';
 import { calendarConnections, captures } from '../src/server/db/schema.js';
 import { loadConfig } from '../src/server/config.js';
@@ -182,11 +182,10 @@ describe('calendar security and event reading', () => {
         clientSecret: 'private',
         redirectUri: 'http://localhost:3000/api/calendar/callback',
         encryptionKey: key,
-        calendarId: 'primary',
       },
     });
     const spy = vi.spyOn(OAuth2Client.prototype, 'getToken').mockResolvedValue({
-      tokens: { refresh_token: 'secret-refresh', scope: 'https://www.googleapis.com/auth/calendar.events.readonly' },
+      tokens: { refresh_token: 'secret-refresh', scope: CALENDAR_SCOPES.join(' ') },
       res: null,
     } as never);
     try {
@@ -194,7 +193,7 @@ describe('calendar security and event reading', () => {
       const cookie = await login(ctx.app, 'oauth@example.com');
       const start = await ctx.app.inject({ method: 'POST', url: '/api/calendar/connect', headers: { cookie } });
       const authUrl = new URL(start.json().url);
-      expect(authUrl.searchParams.get('scope')).toBe('https://www.googleapis.com/auth/calendar.events.readonly');
+      expect(authUrl.searchParams.get('scope')?.split(' ')).toEqual(CALENDAR_SCOPES);
       expect(authUrl.searchParams.get('code_challenge_method')).toBe('S256');
       const stateCookie = start.cookies.find((c) => c.name === 'bc_calendar_state')!;
       const headers = { cookie: `${cookie}; bc_calendar_state=${stateCookie.value}` };
