@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { CATEGORIES } from '../../shared/categories.js';
 import { extractUrl, normalizeUrl, removeLinkFromNote } from '../../shared/text.js';
 import type { CaptureStatus } from '../../shared/types.js';
+import { AiRejectedError, type AiUnavailableError } from '../ai/types.js';
 import type { AppDeps } from '../app.js';
 import { sendError } from '../http.js';
 import {
@@ -149,7 +150,17 @@ export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps)
     try {
       transcript = (await ai.transcribe({ audio: audio.buffer, filename: audio.filename, mimeType: audio.mimeType })).text;
     } catch (err) {
-      req.log.warn({ err: (err as Error).message }, 'transcription failed');
+      // Enough to diagnose a refusal from the logs alone: what the provider said, plus what
+      // was sent (size, declared type and duration), never the audio or the key.
+      const upload = { bytes: audio.buffer.length, mimeType: audio.mimeType, filename: audio.filename, durationMs };
+      if (err instanceof AiRejectedError) {
+        req.log.warn({ provider: err.detail, upload }, 'transcription rejected');
+        // Final for these bytes: a 4xx stops the phone's automatic retries; the recording
+        // stays on the device, where it can be saved, retried by hand or recorded again.
+        const reason = err.detail.message ? ` (${err.detail.message.slice(0, 160)})` : '';
+        return sendError(reply, 422, 'transcription_rejected', `The transcription service refused this recording${reason}.`);
+      }
+      req.log.warn({ err: (err as Error).message, provider: (err as AiUnavailableError).detail, upload }, 'transcription failed');
       return sendError(reply, 503, 'transcription_failed', 'Transcription is unavailable right now.');
     }
     if (!transcript.trim()) {

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Ai, ClassifyInput, ClassifyResult } from '../src/server/ai/types.js';
-import { AiUnavailableError } from '../src/server/ai/types.js';
+import { AiRejectedError, AiUnavailableError } from '../src/server/ai/types.js';
 import { buildApp } from '../src/server/app.js';
 import { hashPassword } from '../src/server/auth/password.js';
 import { loadConfig } from '../src/server/config.js';
@@ -18,8 +18,14 @@ export class FakeAi implements Ai {
 
   transcribeCalls = 0;
 
+  /** Set to simulate the provider refusing the file itself (e.g. Groq 413). */
+  rejectTranscribe: string | null = null;
+
   async transcribe() {
     this.transcribeCalls += 1;
+    if (this.rejectTranscribe !== null) {
+      throw new AiRejectedError('Groq refused', { status: 413, message: this.rejectTranscribe });
+    }
     if (this.failTranscribe) throw new AiUnavailableError('transcription down');
     return { text: this.transcript };
   }

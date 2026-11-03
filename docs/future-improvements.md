@@ -4,7 +4,7 @@ Points connus, acceptés pour la version actuelle, à reprendre plus tard. Chaqu
 
 ## Accepté pour cette version
 
-- **« Record again » sans effet si le stockage local est indisponible** (Codex, round 5 de la PR #2 ; accepté par Julien le 2026-11-02). Après un enregistrement refusé (silence par exemple), le bouton supprime d'abord la copie locale ; si IndexedDB ne répond pas, la suppression échoue et l'enregistrement ne redémarre pas. Il faut cumuler stockage plein ou bloqué et enregistrement refusé. Correctif d'une ligne : `discard(...).catch(() => undefined).then(startRecording)`, comme le fait déjà « Discard ».
+- ~~« Record again » sans effet si le stockage local est indisponible~~ (PR #2, accepté le 2026-11-02). Levé le 2026-11-03 : « Record again » ne supprime plus la note refusée, il démarre simplement un nouvel enregistrement.
 
 - **Focus clavier non retenu dans le tiroir de détail desktop** (Codex, round 5 de la PR #3 ; accepté par Julien le 2026-11-02 pour cette version personnelle). Le tiroir se déclare modal (`aria-modal`), mais Tab peut atteindre la page derrière. Ne touche que la navigation clavier et les lecteurs d'écran ; la feuille de saisie mobile a le même schéma. Correctif prévu : rendre l'arrière-plan `inert` tant que le tiroir ou la feuille est ouvert.
 

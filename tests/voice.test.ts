@@ -70,6 +70,22 @@ describe('voice capture', () => {
     expect(retried.statusCode).toBe(201);
   });
 
+  it('a recording refused by the provider gets a final 422 with the reason, and nothing is stored', async () => {
+    ctx.ai.rejectTranscribe = 'Request Entity Too Large';
+    const clientId = newClientId();
+    const res = await upload(clientId);
+    expect(res.statusCode).toBe(422);
+    expect(res.json()).toEqual({
+      error: 'transcription_rejected',
+      message: 'The transcription service refused this recording (Request Entity Too Large).',
+    });
+    expect(await ctx.db.select().from(captures)).toHaveLength(0);
+
+    // A manual retry with the same clientId works once the provider accepts it.
+    ctx.ai.rejectTranscribe = null;
+    expect((await upload(clientId)).statusCode).toBe(201);
+  });
+
   it('a silent recording is refused as such, not saved empty', async () => {
     ctx.ai.transcript = '   ';
     const res = await upload(newClientId());

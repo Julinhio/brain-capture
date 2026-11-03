@@ -1,5 +1,13 @@
 import { buildClassifyMessages, parseClassifyResponse } from './classify-prompt.js';
-import { AiUnavailableError, type Ai, type ClassifyInput, type ClassifyResult, type TranscribeInput } from './types.js';
+import {
+  AiRejectedError,
+  AiUnavailableError,
+  type Ai,
+  type ClassifyInput,
+  type ClassifyResult,
+  type ProviderErrorDetail,
+  type TranscribeInput,
+} from './types.js';
 
 const GROQ_BASE = 'https://api.groq.com/openai/v1';
 const TRANSCRIBE_TIMEOUT_MS = 90_000;
@@ -32,10 +40,45 @@ async function groqFetch(
     throw new AiUnavailableError(`Groq ${endpoint} unreachable`, err);
   }
   if (!res.ok) {
-    // The response body can echo request details; keep only the status in errors and logs.
-    throw new AiUnavailableError(`Groq ${endpoint} responded ${res.status}`);
+    const detail = await readErrorDetail(res);
+    const summary = `Groq ${endpoint} responded ${res.status}${detail.code || detail.type ? ` (${detail.code ?? detail.type})` : ''}`;
+    // Only a refusal of this very input is final. Rate limits, outages, a bad key or an
+    // unknown model are fixed elsewhere, so the capture must keep waiting and retrying.
+    if (REJECTION_STATUSES.has(res.status)) throw new AiRejectedError(summary, detail);
+    throw new AiUnavailableError(summary, undefined, detail);
   }
   return res.json();
+}
+
+// Statuses where the request itself is refused: same bytes, same answer.
+const REJECTION_STATUSES = new Set([400, 413, 415, 422]);
+
+/**
+ * Keeps Groq's own explanation, which the status alone hides (a 413 on a 23 KB upload is
+ * not about bytes). Bounded and scrubbed: it ends up in logs and on the person's screen.
+ */
+async function readErrorDetail(res: Response): Promise<ProviderErrorDetail> {
+  const detail: ProviderErrorDetail = { status: res.status };
+  let raw = '';
+  try {
+    raw = (await res.text()).slice(0, 4000);
+    const body = JSON.parse(raw) as { error?: { message?: unknown; type?: unknown; code?: unknown } };
+    const e = body.error ?? {};
+    if (typeof e.type === 'string') detail.type = clean(e.type, 60);
+    if (typeof e.code === 'string') detail.code = clean(e.code, 60);
+    if (typeof e.message === 'string') detail.message = clean(e.message, 300);
+  } catch {
+    if (raw) detail.message = clean(raw, 300);
+  }
+  return detail;
+}
+
+function clean(value: string, max: number): string {
+  return value
+    .replace(/gsk_[A-Za-z0-9]+/g, '[key]')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
 }
 
 export function createGroqAi(options: GroqOptions): Ai {
