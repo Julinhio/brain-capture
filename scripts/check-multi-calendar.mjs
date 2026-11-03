@@ -64,13 +64,11 @@ async function main() {
       GOOGLE_REDIRECT_URI: 'http://localhost:3000/api/calendar/callback',
       CALENDAR_ENCRYPTION_KEY: key,
     });
-    await db
-      .insert(users)
-      .values({
-        id: ownerId,
-        email: 'calendar-preview@example.com',
-        passwordHash: await hashPassword('isolated-preview-password'),
-      });
+    await db.insert(users).values({
+      id: ownerId,
+      email: 'calendar-preview@example.com',
+      passwordHash: await hashPassword('isolated-preview-password'),
+    });
     await db
       .insert(calendarConnections)
       .values({ ownerId, refreshToken: seal('isolated-fake-token', key), grantedScopes: CALENDAR_SCOPES.join(' ') });
@@ -121,6 +119,7 @@ async function main() {
       await page.waitForFunction(() => !document.querySelector('.calendar-option input:disabled'));
     }
     await page.getByText('Aucun calendrier sélectionné.', { exact: false }).waitFor();
+    await page.locator('.brief-appointment').getByText('Choisis les calendriers à inclure', { exact: true }).waitFor();
     if (await page.locator('.day-stats').count()) throw new Error('No-selection claims a free day');
     await page.getByRole('button', { name: 'Tous mes calendriers', exact: true }).click();
     await page.getByText('Building with Claude API', { exact: true }).waitFor();

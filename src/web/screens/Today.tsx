@@ -83,7 +83,8 @@ export function Today({ onOpen }: { onOpen: (id: string) => void }) {
   const calendarResult = useSearchParam('calendar');
   const events = calendar.data?.events ?? [];
   const next = events.find((e) => !e.allDay && Date.parse(e.end) > now.getTime());
-  const ready = calendar.data?.state === 'ready' && !calendar.isError;
+  const hasCalendarSelection = calendar.data?.calendars ? calendar.data.calendars.some((c) => c.selected) : true;
+  const ready = calendar.data?.state === 'ready' && !calendar.isError && hasCalendarSelection;
   const jobsToReview =
     !radars.isError && radars.data?.jobs.state === 'ready'
       ? radars.data.jobs.segments.find((m) => m.key === 'a_voir')?.value
@@ -142,13 +143,15 @@ export function Today({ onOpen }: { onOpen: (id: string) => void }) {
               <span>
                 {calendar.isPending
                   ? 'Lecture du calendrier…'
-                  : calendar.data?.state === 'permission_required'
-                    ? 'Reconnecte Google pour inclure tous tes calendriers'
-                    : calendar.data?.state === 'partial'
-                      ? 'Journée incomplète · un calendrier ne répond pas'
-                      : calendar.isError || calendar.data?.state === 'error'
-                        ? 'Calendrier indisponible'
-                        : 'Calendrier à connecter'}
+                  : calendar.data?.state === 'ready' && !hasCalendarSelection
+                    ? 'Choisis les calendriers à inclure'
+                    : calendar.data?.state === 'permission_required'
+                      ? 'Reconnecte Google pour inclure tous tes calendriers'
+                      : calendar.data?.state === 'partial'
+                        ? 'Journée incomplète · un calendrier ne répond pas'
+                        : calendar.isError || calendar.data?.state === 'error'
+                          ? 'Calendrier indisponible'
+                          : 'Calendrier à connecter'}
               </span>
             )}
           </div>
