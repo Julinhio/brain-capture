@@ -36,6 +36,7 @@ export type ApiErrorCode =
   | 'not_found'
   | 'rate_limited'
   | 'transcription_failed'
+  | 'transcription_rejected'
   | 'empty_transcription'
   | 'audio_too_large'
   | 'forbidden_origin'

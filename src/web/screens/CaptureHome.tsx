@@ -1,11 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Check, Clock, Link2, Mic, MicOff, Square, Type, X } from 'lucide-react';
+import { AlertTriangle, Check, Clock, Download, Link2, Mic, MicOff, Share2, Square, Type, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { Capture } from '../../shared/types';
 import { CaptureView } from '../components/CaptureView';
 import { CategoryIcon } from '../components/CategoryIcon';
 import { ComposeSheet, type ComposeValue } from '../components/ComposeSheet';
 import { discard, enqueue, flush, makeItem, onSent, pendingItems, send, subscribe, type NewOutboxItem, type OutboxItem } from '../lib/outbox';
+import { canShareRecording, downloadRecording, shareRecording } from '../lib/recordingFile';
 import { sharedToCapture, type SharedData } from '../../shared/share';
 import { navigate, useSearchParam } from '../lib/router';
 import { clockTime, formatDuration, relativeTime } from '../lib/time';
@@ -213,7 +214,9 @@ export function CaptureHome({ share }: { share?: SharedData } = {}) {
             ? undefined
             : () => setMode({ name: 'compose', kind: item.kind, initial: { text: item.text, url: item.url }, replaces: item.clientId })
         }
-        onRecordAgain={item.kind === 'voice' ? () => void discard(item.clientId).then(startRecording) : undefined}
+        // Recording again keeps the refused note: it stays on the device (and in the Review
+        // banner) until it is saved, retried or discarded on purpose.
+        onRecordAgain={item.kind === 'voice' ? startRecording : undefined}
         onDone={goHome}
       />
     );
@@ -295,7 +298,9 @@ export function CaptureHome({ share }: { share?: SharedData } = {}) {
           <AlertTriangle size={18} aria-hidden="true" />
           <span className="grow">
             {blocked
-              ? 'A capture could not be saved as is.'
+              ? blocked.kind === 'voice'
+                ? 'A recording was refused by transcription. It is kept on this device.'
+                : 'A capture could not be saved as is.'
               : `${pending.length === 1 ? '1 capture is' : `${pending.length} captures are`} waiting to be saved.`}
           </span>
           {blocked ? (
@@ -449,6 +454,33 @@ function SavingView({ mode, onAnother }: { mode: Extract<Mode, { name: 'saving' 
   );
 }
 
+/** Copies the waiting recording out of the app; the app keeps its own copy either way. */
+function RecordingCopyActions({ item, primary }: { item: Extract<OutboxItem, { kind: 'voice' }>; primary: boolean }) {
+  const [shareFailed, setShareFailed] = useState(false);
+  return (
+    <>
+      <button type="button" className={`btn btn-block ${primary ? 'btn-primary' : ''}`} onClick={() => downloadRecording(item)}>
+        <Download size={18} aria-hidden="true" /> Save a copy
+      </button>
+      {canShareRecording(item) && (
+        <button
+          type="button"
+          className="btn btn-block"
+          onClick={() =>
+            void shareRecording(item).catch((err: unknown) => {
+              // Closing the share sheet is not a failure worth reporting.
+              if ((err as DOMException).name !== 'AbortError') setShareFailed(true);
+            })
+          }
+        >
+          <Share2 size={18} aria-hidden="true" /> Share
+        </button>
+      )}
+      {shareFailed && <p className="field-error">Sharing did not work. Use “Save a copy” instead.</p>}
+    </>
+  );
+}
+
 function NotSaved({
   mode,
   onRetry,
@@ -482,6 +514,11 @@ function NotSaved({
             {mode.message} Your {voice ? 'recording' : 'capture'} is safe on this device. It is sent automatically while the app is
             open, and this screen updates as soon as it is saved.
           </p>
+        ) : voice ? (
+          <p className="lead">
+            {mode.message} The recording is kept on this device and is not retried automatically. Save a copy to keep it outside
+            the app, try again later, or record it again.
+          </p>
         ) : (
           <p className="lead">{mode.message}</p>
         )}
@@ -502,15 +539,11 @@ function NotSaved({
               <button type="button" className="btn btn-primary btn-block" onClick={onRetry}>
                 Retry now
               </button>
-              {!mode.unstored && (
-                <button type="button" className="btn btn-block" onClick={onDone}>
-                  Keep it for later
-                </button>
-              )}
             </>
           )}
-          {!mode.retryable && mode.unstored && (
-            <button type="button" className="btn btn-primary btn-block" onClick={onRetry}>
+          {mode.item.kind === 'voice' && <RecordingCopyActions item={mode.item} primary={!mode.retryable} />}
+          {!mode.retryable && (mode.unstored || voice) && (
+            <button type="button" className={`btn btn-block ${mode.unstored ? 'btn-primary' : ''}`} onClick={onRetry}>
               Try again
             </button>
           )}
@@ -520,8 +553,15 @@ function NotSaved({
             </button>
           )}
           {!mode.retryable && onRecordAgain && (
-            <button type="button" className="btn btn-primary btn-block" onClick={onRecordAgain}>
+            <button type="button" className="btn btn-block" onClick={onRecordAgain}>
               <Mic size={18} aria-hidden="true" /> Record again
+            </button>
+          )}
+          {/* Whenever the capture is on the device (waiting or refused), leaving is safe: it
+              stays there and the home banner leads back to it. */}
+          {!mode.unstored && (mode.retryable || voice) && (
+            <button type="button" className="btn btn-block" onClick={onDone}>
+              Keep it for later
             </button>
           )}
           <button
