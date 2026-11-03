@@ -15,6 +15,13 @@
       "when": 1793703173948,
       "tag": "0001_flat_network",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793719616094,
+      "tag": "0002_short_susan_delgado",
+      "breakpoints": true
     }
   ]
 }

@@ -3,13 +3,16 @@ import { CodeChallengeMethod, OAuth2Client } from 'google-auth-library';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import type { CalendarDay, CalendarEvent, DayWindow } from '../../shared/dashboard.js';
+import type { CalendarDay, CalendarEvent, CalendarSource, DayWindow } from '../../shared/dashboard.js';
 import type { AppDeps } from '../app.js';
 import { calendarConnections } from '../db/schema.js';
 import { sendError } from '../http.js';
 import { dayWindow } from './day.js';
 
-const SCOPE = 'https://www.googleapis.com/auth/calendar.events.readonly';
+export const CALENDAR_SCOPES = [
+  'https://www.googleapis.com/auth/calendar.events.readonly',
+  'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
+];
 const STATE_COOKIE = 'bc_calendar_state';
 export function seal(value: string, hexKey: string): string {
   const iv = randomBytes(12);
@@ -49,12 +52,15 @@ export async function calendarEvents(
   client: OAuth2Client,
   window: DayWindow,
   calendarId: string,
+  deadline = Date.now() + 25_000,
 ): Promise<CalendarEvent[]> {
   const events: CalendarEvent[] = [];
   let next: string | undefined;
   // Follow all pages; on an unexpectedly huge calendar fail visibly instead of claiming
   // that a truncated response describes the whole day.
   for (let page = 0; page < 20; page++) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error('Calendar reading timed out');
     const response = await client.request({
       url: `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
       params: {
@@ -66,7 +72,7 @@ export async function calendarEvents(
         timeZone: window.timeZone,
         ...(next ? { pageToken: next } : {}),
       },
-      timeout: 10_000,
+      timeout: Math.min(10_000, remaining),
       retry: false,
     });
     const body = eventsPage.parse(response.data);
@@ -89,6 +95,115 @@ export async function calendarEvents(
     if (!next) return events;
   }
   throw new Error('Calendar pagination limit reached');
+}
+
+const listPage = z.object({
+  items: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(2000),
+        summary: z.string().optional(),
+        summaryOverride: z.string().optional(),
+        backgroundColor: z.string().optional(),
+        accessRole: z.string(),
+        hidden: z.boolean().optional(),
+        deleted: z.boolean().optional(),
+      }),
+    )
+    .default([]),
+  nextPageToken: z.string().optional(),
+});
+export type ListedCalendar = Pick<CalendarSource, 'id' | 'name' | 'color' | 'owned'> & { hidden: boolean };
+export async function listCalendars(client: OAuth2Client, deadline = Date.now() + 25_000): Promise<ListedCalendar[]> {
+  const calendars = new Map<string, ListedCalendar>();
+  let next: string | undefined;
+  for (let page = 0; page < 20; page++) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error('Calendar discovery timed out');
+    const response = await client.request({
+      url: 'https://www.googleapis.com/calendar/v3/users/me/calendarList',
+      params: {
+        maxResults: 250,
+        minAccessRole: 'reader',
+        showHidden: true,
+        showDeleted: false,
+        ...(next ? { pageToken: next } : {}),
+      },
+      timeout: Math.min(10_000, remaining),
+      retry: false,
+    });
+    const body = listPage.parse(response.data);
+    for (const c of body.items) {
+      if (c.deleted || !['owner', 'writer', 'writerWithoutPrivateAccess', 'reader'].includes(c.accessRole)) continue;
+      calendars.set(c.id, {
+        id: c.id,
+        name: c.summaryOverride || c.summary || 'Calendrier sans nom',
+        color: /^#[a-f0-9]{6}$/i.test(c.backgroundColor ?? '') ? c.backgroundColor! : '#ffad52',
+        owned: c.accessRole === 'owner',
+        hidden: c.hidden ?? false,
+      });
+    }
+    next = body.nextPageToken;
+    if (!next)
+      return [...calendars.values()].sort((a, b) => Number(b.owned) - Number(a.owned) || a.name.localeCompare(b.name));
+  }
+  throw new Error('Calendar discovery pagination limit reached');
+}
+
+export async function readCalendarDay(
+  client: OAuth2Client,
+  window: DayWindow,
+  selectedIds: string[] | null,
+): Promise<CalendarDay> {
+  const deadline = Date.now() + 25_000;
+  const available = await listCalendars(client, deadline);
+  const selected =
+    selectedIds === null
+      ? new Set(available.filter((c) => c.owned && !c.hidden).map((c) => c.id))
+      : new Set(selectedIds);
+  const missingCalendarCount = [...selected].filter((id) => !available.some((c) => c.id === id)).length;
+  const calendars: CalendarSource[] = available.map(({ hidden: _hidden, ...c }) => ({
+    ...c,
+    selected: selected.has(c.id),
+    loadState: selected.has(c.id) ? 'error' : 'off',
+  }));
+  const pending = calendars.filter((c) => c.selected);
+  const events: CalendarEvent[] = [];
+  let cursor = 0;
+  // Bound concurrency and use one shared deadline. One bad source never becomes
+  // an empty successful calendar, nor hides the successfully read sources.
+  await Promise.all(
+    Array.from({ length: Math.min(4, pending.length) }, async () => {
+      while (cursor < pending.length) {
+        const source = pending[cursor++]!;
+        try {
+          const rows = await calendarEvents(client, window, source.id, deadline);
+          events.push(
+            ...rows.map((event) => ({
+              ...event,
+              id: JSON.stringify([source.id, event.id]),
+              calendarId: source.id,
+              calendarName: source.name,
+              calendarColor: source.color,
+            })),
+          );
+          source.loadState = 'ready';
+        } catch {
+          source.loadState = 'error';
+        }
+      }
+    }),
+  );
+  events.sort(
+    (a, b) => Date.parse(a.start) - Date.parse(b.start) || a.title.localeCompare(b.title) || a.id.localeCompare(b.id),
+  );
+  return {
+    state: missingCalendarCount || pending.some((c) => c.loadState === 'error') ? 'partial' : 'ready',
+    checkedAt: new Date().toISOString(),
+    calendars,
+    missingCalendarCount,
+    events,
+  };
 }
 
 export function registerCalendarRoutes(app: FastifyInstance, { db, config }: AppDeps) {
@@ -124,7 +239,7 @@ export function registerCalendarRoutes(app: FastifyInstance, { db, config }: App
       url: client.generateAuthUrl({
         access_type: 'offline',
         prompt: 'consent',
-        scope: [SCOPE],
+        scope: CALENDAR_SCOPES,
         state,
         code_challenge: codeChallenge,
         code_challenge_method: CodeChallengeMethod.S256,
@@ -154,14 +269,22 @@ export function registerCalendarRoutes(app: FastifyInstance, { db, config }: App
         throw new Error('Invalid OAuth callback');
       const client = oauth();
       const { tokens } = await client.getToken({ code: query.code, codeVerifier: state.codeVerifier });
-      if (!tokens.refresh_token || !tokens.scope?.split(' ').includes(SCOPE))
+      if (!tokens.refresh_token || !CALENDAR_SCOPES.every((scope) => tokens.scope?.split(' ').includes(scope)))
         throw new Error('Missing calendar permission');
       await db
         .insert(calendarConnections)
-        .values({ ownerId: req.user!.id, refreshToken: seal(tokens.refresh_token, settings.encryptionKey) })
+        .values({
+          ownerId: req.user!.id,
+          refreshToken: seal(tokens.refresh_token, settings.encryptionKey),
+          grantedScopes: tokens.scope!,
+        })
         .onConflictDoUpdate({
           target: calendarConnections.ownerId,
-          set: { refreshToken: seal(tokens.refresh_token, settings.encryptionKey), updatedAt: new Date() },
+          set: {
+            refreshToken: seal(tokens.refresh_token, settings.encryptionKey),
+            grantedScopes: tokens.scope!,
+            updatedAt: new Date(),
+          },
         });
       return reply.redirect('/?calendar=connected');
     } catch {
@@ -174,9 +297,46 @@ export function registerCalendarRoutes(app: FastifyInstance, { db, config }: App
     await db.delete(calendarConnections).where(eq(calendarConnections.ownerId, req.user!.id));
     return { ok: true };
   });
+  app.patch('/api/calendar/selection', async (req, reply) => {
+    const body = z
+      .object({ calendarIds: z.array(z.string().min(1).max(2000)).max(100).nullable() })
+      .strict()
+      .safeParse(req.body);
+    if (!body.success) return sendError(reply, 400, 'invalid_input', 'Sélection de calendriers invalide.');
+    const [connection] = await db
+      .select()
+      .from(calendarConnections)
+      .where(eq(calendarConnections.ownerId, req.user!.id));
+    if (!settings || !connection)
+      return sendError(reply, 400, 'invalid_input', 'Connecte Google Calendar avant de choisir tes calendriers.');
+    if (!CALENDAR_SCOPES.every((scope) => connection.grantedScopes.split(' ').includes(scope)))
+      return sendError(reply, 400, 'invalid_input', 'Reconnecte Google pour autoriser la liste des calendriers.');
+    try {
+      const client = oauth();
+      client.setCredentials({ refresh_token: unseal(connection.refreshToken, settings.encryptionKey) });
+      const available = await listCalendars(client);
+      if (body.data.calendarIds?.some((id) => !available.some((c) => c.id === id)))
+        return sendError(
+          reply,
+          400,
+          'invalid_input',
+          'Un calendrier choisi n’est plus accessible. Actualise la liste.',
+        );
+      await db
+        .update(calendarConnections)
+        .set({
+          calendarIds: body.data.calendarIds === null ? null : [...new Set(body.data.calendarIds)],
+          updatedAt: new Date(),
+        })
+        .where(eq(calendarConnections.ownerId, req.user!.id));
+      return { ok: true };
+    } catch {
+      return sendError(reply, 503, 'internal', 'La sélection n’a pas été enregistrée. Réessaie dans un instant.');
+    }
+  });
   app.get('/api/calendar/day', async (req, reply): Promise<CalendarDay | unknown> => {
     reply.header('Cache-Control', 'no-store');
-    const empty = { checkedAt: null, events: [] };
+    const empty = { checkedAt: null, events: [], calendars: [] };
     if (!settings) return { ...empty, state: 'unconfigured' };
     let window;
     try {
@@ -194,11 +354,12 @@ export function registerCalendarRoutes(app: FastifyInstance, { db, config }: App
       .from(calendarConnections)
       .where(eq(calendarConnections.ownerId, req.user!.id));
     if (!connection) return { ...empty, state: 'disconnected' };
+    if (!CALENDAR_SCOPES.every((scope) => connection.grantedScopes.split(' ').includes(scope)))
+      return { ...empty, state: 'permission_required' };
     try {
       const client = oauth();
       client.setCredentials({ refresh_token: unseal(connection.refreshToken, settings.encryptionKey) });
-      const events = await calendarEvents(client, window, settings.calendarId);
-      return { state: 'ready', checkedAt: new Date().toISOString(), events };
+      return await readCalendarDay(client, window, connection.calendarIds);
     } catch {
       return { ...empty, state: 'error' };
     }

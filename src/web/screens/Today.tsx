@@ -142,9 +142,13 @@ export function Today({ onOpen }: { onOpen: (id: string) => void }) {
               <span>
                 {calendar.isPending
                   ? 'Lecture du calendrier…'
-                  : calendar.isError || calendar.data?.state === 'error'
-                    ? 'Calendrier indisponible'
-                    : 'Calendrier à connecter'}
+                  : calendar.data?.state === 'permission_required'
+                    ? 'Reconnecte Google pour inclure tous tes calendriers'
+                    : calendar.data?.state === 'partial'
+                      ? 'Journée incomplète · un calendrier ne répond pas'
+                      : calendar.isError || calendar.data?.state === 'error'
+                        ? 'Calendrier indisponible'
+                        : 'Calendrier à connecter'}
               </span>
             )}
           </div>
@@ -343,13 +347,34 @@ function CalendarPanel({
       void qc.invalidateQueries({ queryKey: ['calendar'] });
     },
   });
+  const [draftSelection, setDraftSelection] = useState<string[] | undefined>();
+  const selection = useMutation({
+    mutationFn: api.selectCalendars,
+    onMutate: (ids) => setDraftSelection(ids ?? undefined),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['calendar'] }),
+    onSettled: () => setDraftSelection(undefined),
+  });
   const ready = data?.state === 'ready';
+  const connected = ready || data?.state === 'partial';
+  const calendars = data?.calendars ?? [];
+  const selectedIds = calendars.filter((c) => c.selected).map((c) => c.id);
+  const complete = ready && !selection.isPending && (data?.calendars ? selectedIds.length > 0 : true);
   const events = data?.events ?? [];
   const rhythm = dayRhythm(events, date);
   const timed = events.filter((e) => !e.allDay);
   const allDay = events.filter((e) => e.allDay);
   const hours = Math.floor(rhythm.freeMinutes / 60);
   const minutes = rhythm.freeMinutes % 60;
+  const sourceLanes = [...new Set(events.filter((e) => e.busy).map((e) => e.calendarId ?? 'primary'))];
+  const busySlots = events
+    .filter((e) => e.busy)
+    .map((e) => ({
+      event: e,
+      start: e.allDay ? rhythm.start : Math.max(rhythm.start, Date.parse(e.start)),
+      end: e.allDay ? rhythm.end : Math.min(rhythm.end, Date.parse(e.end)),
+      lane: sourceLanes.indexOf(e.calendarId ?? 'primary'),
+    }))
+    .filter((slot) => slot.end > slot.start);
   return (
     <section className="calendar-panel" aria-labelledby="calendar-title">
       <div className="today-section-head">
@@ -359,7 +384,7 @@ function CalendarPanel({
         </h2>
         <div className="calendar-controls">
           <span className="hint">{Intl.DateTimeFormat().resolvedOptions().timeZone}</span>
-          {ready && (
+          {connected && (
             <button
               type="button"
               className="link-btn"
@@ -372,56 +397,125 @@ function CalendarPanel({
           )}
         </div>
       </div>
+      {connected && calendars.length > 0 && (
+        <div className="calendar-selection" role="group" aria-label="Calendriers inclus">
+          <div className="calendar-selection-head">
+            <span className="hint">
+              {selectedIds.length} calendrier{selectedIds.length > 1 ? 's' : ''} inclus
+            </span>
+            <button
+              type="button"
+              className="link-btn"
+              disabled={selection.isPending}
+              onClick={() => selection.mutate(null)}
+            >
+              Tous mes calendriers
+            </button>
+          </div>
+          <div className="calendar-options">
+            {calendars.map((c) => (
+              <label key={c.id} className={`calendar-option ${c.selected ? 'selected' : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={draftSelection ? draftSelection.includes(c.id) : c.selected}
+                  disabled={selection.isPending}
+                  onChange={(e) =>
+                    selection.mutate(
+                      e.target.checked ? [...selectedIds, c.id] : selectedIds.filter((id) => id !== c.id),
+                    )
+                  }
+                />
+                <span className="calendar-color" style={{ backgroundColor: c.color }} aria-hidden="true" />
+                <span>{c.name}</span>
+                {c.loadState === 'error' && <span className="field-error">Indisponible</span>}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+      {selection.isError && (
+        <p className="field-error" role="alert">
+          Sélection non enregistrée. {selection.error.message}
+        </p>
+      )}
+      {data?.state === 'partial' && (
+        <p className="calendar-incomplete" role="status">
+          Journée incomplète :{' '}
+          {calendars
+            .filter((c) => c.selected && c.loadState === 'error')
+            .map((c) => c.name)
+            .join(', ') || 'un calendrier sélectionné n’est plus accessible'}
+          . Les disponibilités ne peuvent pas être calculées pour l’ensemble de la journée.
+        </p>
+      )}
       {loading ? (
         <p className="hint" role="status">
           Lecture du calendrier…
         </p>
-      ) : ready ? (
+      ) : connected ? (
         <>
-          <div className="day-stats">
-            <span>
-              <strong>{events.length}</strong> rendez-vous & événements
-            </span>
-            <span>
-              <strong>
-                {hours} h{minutes ? ` ${minutes}` : ''}
-              </strong>{' '}
-              sans rendez-vous de 8 h à 20 h
-            </span>
-          </div>
-          <div
-            className="day-timeline"
-            role="img"
-            aria-label={`Disponibilités de 8 h à 20 h : ${rhythm.freeMinutes} minutes sans rendez-vous. Les horaires détaillés suivent.`}
-          >
-            {rhythm.busy.map(([a, b]) => (
-              <span
-                className="busy-slot"
-                key={a}
-                style={{
-                  left: `${((a - rhythm.start) / (rhythm.end - rhythm.start)) * 100}%`,
-                  width: `${((b - a) / (rhythm.end - rhythm.start)) * 100}%`,
-                }}
-              />
-            ))}
-            {now.getTime() >= rhythm.start && now.getTime() <= rhythm.end && (
-              <span
-                className="now-marker"
-                style={{ left: `${((now.getTime() - rhythm.start) / (rhythm.end - rhythm.start)) * 100}%` }}
-              />
-            )}
-          </div>
-          <div className="timeline-labels" aria-hidden="true">
-            {[8, 10, 12, 14, 16, 18, 20].map((h) => (
-              <span key={h}>{h} h</span>
-            ))}
-          </div>
+          {complete ? (
+            <>
+              <div className="day-stats">
+                <span>
+                  <strong>{events.length}</strong> rendez-vous & événements
+                </span>
+                <span>
+                  <strong>
+                    {hours} h{minutes ? ` ${minutes}` : ''}
+                  </strong>{' '}
+                  sans rendez-vous de 8 h à 20 h
+                </span>
+              </div>
+              <div
+                className="day-timeline"
+                style={{ height: Math.max(34, sourceLanes.length * 12 + 8) }}
+                role="img"
+                aria-label={`Disponibilités de 8 h à 20 h : ${rhythm.freeMinutes} minutes sans rendez-vous. Les horaires détaillés suivent.`}
+              >
+                {busySlots.map(({ event, start, end, lane }) => (
+                  <span
+                    className="busy-slot"
+                    key={event.id}
+                    style={{
+                      left: `${((start - rhythm.start) / (rhythm.end - rhythm.start)) * 100}%`,
+                      width: `${((end - start) / (rhythm.end - rhythm.start)) * 100}%`,
+                      backgroundColor: event.calendarColor ?? 'var(--accent)',
+                      top: 4 + lane * 12,
+                      bottom: 'auto',
+                      height: sourceLanes.length > 1 ? 9 : 26,
+                    }}
+                  />
+                ))}
+                {now.getTime() >= rhythm.start && now.getTime() <= rhythm.end && (
+                  <span
+                    className="now-marker"
+                    style={{ left: `${((now.getTime() - rhythm.start) / (rhythm.end - rhythm.start)) * 100}%` }}
+                  />
+                )}
+              </div>
+              <div className="timeline-labels" aria-hidden="true">
+                {[8, 10, 12, 14, 16, 18, 20].map((h) => (
+                  <span key={h}>{h} h</span>
+                ))}
+              </div>
+            </>
+          ) : selectedIds.length === 0 && data?.state !== 'partial' ? (
+            <p className="hint">Aucun calendrier sélectionné. Choisis les calendriers à inclure dans ta journée.</p>
+          ) : (
+            <p className="hint">
+              {events.length} événement{events.length > 1 ? 's' : ''} chargé{events.length > 1 ? 's' : ''}, lecture
+              partielle.
+            </p>
+          )}
           {allDay.length > 0 && (
             <div className="all-day-events">
               {allDay.map((e) => (
                 <span key={e.id}>
                   {e.title}
-                  <small>Toute la journée{!e.busy ? ' · disponible' : ''}</small>
+                  <small>
+                    {e.calendarName ? `${e.calendarName} · ` : ''}Toute la journée{!e.busy ? ' · disponible' : ''}
+                  </small>
                 </span>
               ))}
             </div>
@@ -433,9 +527,10 @@ function CalendarPanel({
                   {time(e.start)}
                   <span>{time(e.end)}</span>
                 </time>
-                <span className="agenda-dot" />
+                <span className="agenda-dot" style={{ backgroundColor: e.calendarColor ?? 'var(--accent)' }} />
                 <div>
                   <strong>{e.title}</strong>
+                  {e.calendarName && <span className="event-calendar">{e.calendarName}</span>}
                   {!e.busy && <span className="hint">Ne bloque pas ta disponibilité</span>}
                 </div>
                 {e.url && (
@@ -452,8 +547,10 @@ function CalendarPanel({
               </div>
             ))}
           </div>
-          {!events.length && <p className="hint">Aucun événement aujourd’hui dans ce calendrier.</p>}
-          {rhythm.free.length > 0 && (
+          {!events.length && complete && (
+            <p className="hint">Aucun événement aujourd’hui dans les calendriers sélectionnés.</p>
+          )}
+          {complete && rhythm.free.length > 0 && (
             <div className="free-windows">
               <span className="mono">Plages sans rendez-vous</span>
               {rhythm.free
@@ -472,22 +569,30 @@ function CalendarPanel({
           <CalendarDays size={30} aria-hidden="true" />
           <div>
             <h3>
-              {error || data?.state === 'error'
-                ? 'Calendrier momentanément indisponible'
-                : 'Donner un rythme à ta journée'}
+              {data?.state === 'permission_required'
+                ? 'Inclure tous tes calendriers'
+                : error || data?.state === 'error'
+                  ? 'Calendrier momentanément indisponible'
+                  : 'Donner un rythme à ta journée'}
             </h3>
             <p>
-              {data?.state === 'unconfigured'
-                ? 'La connexion Google doit être configurée avant de pouvoir relier ton calendrier.'
-                : error || data?.state === 'error'
-                  ? 'Les rendez-vous ne sont pas connus. Réessaie ou reconnecte Google Calendar.'
-                  : 'Relie ton calendrier principal pour retrouver rendez-vous et plages disponibles.'}
+              {data?.state === 'permission_required'
+                ? 'Reconnecte Google pour autoriser la lecture de la liste de tes calendriers. Tes calendriers personnels seront inclus ensemble, sans modifier tes événements.'
+                : data?.state === 'unconfigured'
+                  ? 'La connexion Google doit être configurée avant de pouvoir relier ton calendrier.'
+                  : error || data?.state === 'error'
+                    ? 'Les rendez-vous ne sont pas connus. Réessaie ou reconnecte Google Calendar.'
+                    : 'Relie tes calendriers pour retrouver toute ta journée et tes plages disponibles.'}
             </p>
           </div>
           {data?.state !== 'unconfigured' && (
             <button className="btn" type="button" disabled={connect.isPending} onClick={() => connect.mutate()}>
               <Plug size={16} aria-hidden="true" />
-              {connect.isPending ? 'Connexion…' : 'Connecter Google Calendar'}
+              {connect.isPending
+                ? 'Connexion…'
+                : data?.state === 'permission_required'
+                  ? 'Reconnecter mes calendriers'
+                  : 'Connecter Google Calendar'}
             </button>
           )}
         </div>

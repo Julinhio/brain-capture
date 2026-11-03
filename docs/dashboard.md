@@ -20,13 +20,17 @@ restent acceptés. Les tokens Google ne sont jamais exportés.
 
 ## Google Calendar
 
-Google Cloud : client OAuth Web, Google Calendar API activée, scope unique
-`https://www.googleapis.com/auth/calendar.events.readonly`.
+Google Cloud : client OAuth Web, Google Calendar API activée, scopes de lecture seule :
+`https://www.googleapis.com/auth/calendar.events.readonly` et
+`https://www.googleapis.com/auth/calendar.calendarlist.readonly`.
 
 Variables serveur à définir ensemble : GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
 GOOGLE_REDIRECT_URI, CALENDAR_ENCRYPTION_KEY (32 octets aléatoires en hexadécimal).
-GOOGLE_CALENDAR_ID est facultatif, `primary` par défaut. Le choix multi-calendrier
-dans l’interface et l’écriture de rendez-vous sont hors de cette version.
+Tous les calendriers possédés et non masqués sont inclus par défaut. Les autres
+calendriers accessibles restent désactivés. La sélection se corrige dans Ma journée,
+se conserve avec la connexion et peut revenir au mode automatique avec « Tous mes
+calendriers ». Une sélection vide reste vide. L’ancien GOOGLE_CALENDAR_ID est ignoré.
+L’écriture d’événements Google reste hors périmètre.
 
 URI de retour de production :
 `https://brain-capture-production-8fa2.up.railway.app/api/calendar/callback`.
@@ -38,6 +42,16 @@ refresh token est chiffré AES-256-GCM en base avec la clé serveur distincte. G
 cette clé dans dev-secrets et entre les déploiements ; la changer nécessite une
 reconnexion. Déconnecter supprime le token local ; la révocation chez Google reste
 possible depuis les paramètres du compte Google.
+
+La liste de calendriers et les événements sont paginés. Les anciennes autorisations
+limitées aux événements demandent une reconnexion pour ajouter la lecture de la liste.
+Le token existant est conservé jusqu’à un consentement complet réussi. Noms et couleurs
+des calendriers accompagnent les événements ; leurs identifiants sont combinés à ceux
+des événements pour éviter les collisions entre sources.
+
+Les sources sont lues avec une concurrence bornée et un délai global. Si une source
+choisie manque ou échoue, la journée est signalée incomplète : événements disponibles
+visibles mais aucune promesse de temps libre ni de prochain rendez-vous global.
 
 Événements récurrents développés, pages suivies, refusés/annulés exclus. Les événements
 transparents n’occupent pas une plage. Les événements bloquants sur toute la journée

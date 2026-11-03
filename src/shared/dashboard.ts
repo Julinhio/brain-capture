@@ -40,11 +40,24 @@ export interface CalendarEvent {
   allDay: boolean;
   busy: boolean;
   url: string | null;
+  calendarId?: string;
+  calendarName?: string;
+  calendarColor?: string;
+}
+export interface CalendarSource {
+  id: string;
+  name: string;
+  color: string;
+  owned: boolean;
+  selected: boolean;
+  loadState: 'ready' | 'error' | 'off';
 }
 export interface CalendarDay {
-  state: 'ready' | 'unconfigured' | 'disconnected' | 'error';
+  state: 'ready' | 'partial' | 'permission_required' | 'unconfigured' | 'disconnected' | 'error';
   checkedAt: string | null;
   events: CalendarEvent[];
+  calendars?: CalendarSource[];
+  missingCalendarCount?: number;
 }
 export interface DayWindow {
   date: string;

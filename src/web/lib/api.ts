@@ -73,6 +73,7 @@ export const api = {
   calendarDay: (timeZone: string) => request<CalendarDay>('GET', `/api/calendar/day?${new URLSearchParams({ timeZone })}`),
   connectCalendar: () => request<{ url: string }>('POST', '/api/calendar/connect'),
   disconnectCalendar: () => request<{ ok: true }>('DELETE', '/api/calendar/connection'),
+  selectCalendars: (calendarIds: string[] | null) => request<{ ok: true }>('PATCH', '/api/calendar/selection', { calendarIds }),
   projects: () => request<{ projects: Project[] }>('GET', '/api/projects').then((r) => r.projects),
   createProject: (input: { name: string; intention: string; state: ProjectState; nextStep: string; captureId?: string }) => request<{ id: string }>('POST', '/api/projects', input),
   updateProject: (id: string, patch: Partial<Pick<Project, 'name' | 'intention' | 'state' | 'nextStep'>>) => request<{ id: string }>('PATCH', `/api/projects/${id}`, patch),
