@@ -5,6 +5,7 @@ import { extractUrl, normalizeUrl, removeLinkFromNote } from '../../shared/text.
 import type { CaptureStatus } from '../../shared/types.js';
 import { AiRejectedError, type AiUnavailableError } from '../ai/types.js';
 import type { AppDeps } from '../app.js';
+import { captureContext, proposeEvent } from './event.js';
 import { sendError } from '../http.js';
 import {
   classifyCapture,
@@ -26,6 +27,9 @@ const createSchema = z.object({
   text: z.string().max(MAX_TEXT).default(''),
   url: z.string().max(2048).optional(),
   device: z.string().max(40).optional(),
+  // The phone's clock (epoch ms) and IANA zone when the capture was made, for relative dates.
+  capturedAt: z.number().int().optional(),
+  timeZone: z.string().max(100).optional(),
 });
 
 const patchSchema = z
@@ -55,6 +59,8 @@ const voiceSchema = z.object({
   clientId: z.uuid(),
   durationMs: z.coerce.number().int().min(0).max(MAX_RECORDING_MS + 5_000),
   device: z.string().max(40).optional(),
+  capturedAt: z.coerce.number().int().optional(),
+  timeZone: z.string().max(100).optional(),
 });
 
 export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps): void {
@@ -113,8 +119,12 @@ export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps)
       device: input.device ?? null,
     });
     // The row is committed before the model is asked anything: a classification failure
-    // can only leave the capture under Other, never lose it.
-    const final = row.classificationStatus === 'done' ? row : await classifyCapture(db, ai, row);
+    // can only leave the capture under Other, never lose it. An explicit calendar request is
+    // read at the same time; that step never fails the save either.
+    const [final] = await Promise.all([
+      row.classificationStatus === 'done' ? row : classifyCapture(db, ai, row),
+      proposeEvent(db, ai, row, captureContext(input.capturedAt, input.timeZone), req.log),
+    ]);
     return reply.code(created ? 201 : 200).send({ capture: toCapture(final), created });
   });
 
@@ -137,7 +147,7 @@ export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps)
     }
     const parsed = voiceSchema.safeParse(fields);
     if (!parsed.success) return sendError(reply, 400, 'invalid_input', 'This recording is not valid.');
-    const { clientId, durationMs, device } = parsed.data;
+    const { clientId, durationMs, device, capturedAt, timeZone } = parsed.data;
 
     // A retry of an upload that already went through: no second transcription, no duplicate.
     const existing = await findByClientId(db, req.user!.id, clientId);
@@ -175,7 +185,10 @@ export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps)
       durationMs,
       device: device ?? null,
     });
-    const final = row.classificationStatus === 'done' ? row : await classifyCapture(db, ai, row);
+    const [final] = await Promise.all([
+      row.classificationStatus === 'done' ? row : classifyCapture(db, ai, row),
+      proposeEvent(db, ai, row, captureContext(capturedAt, timeZone), req.log),
+    ]);
     return reply.code(created ? 201 : 200).send({ capture: toCapture(final), created });
   });
 

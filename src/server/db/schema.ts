@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { boolean, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { CATEGORIES } from '../../shared/categories.js';
+import type { CaptureEventState, EventDraft } from '../../shared/event.js';
 
 export const categoryEnum = pgEnum('category', CATEGORIES);
 export const captureKindEnum = pgEnum('capture_kind', ['voice', 'text', 'link']);
@@ -99,3 +100,26 @@ export const calendarConnections = pgTable('calendar_connections', {
   calendarIds: jsonb('calendar_ids').$type<string[] | null>(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// At most one calendar event per capture: the capture id is the primary key here and, on
+// Google's side, the event id is derived from it (see captures/event.ts). The capture itself
+// is never modified by any of this.
+export const captureEvents = pgTable('capture_events', {
+  captureId: uuid('capture_id').primaryKey().references(() => captures.id, { onDelete: 'cascade' }),
+  ownerId: uuid('owner_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  state: text('state').$type<CaptureEventState>().notNull().default('proposed'),
+  extraction: text('extraction').$type<'done' | 'failed'>().notNull(),
+  draft: jsonb('draft').$type<EventDraft>().notNull(),
+  // The phone's clock and zone when the capture was made: relative dates are read from them,
+  // also when the extraction is run again later.
+  referenceAt: timestamp('reference_at', { withTimezone: true }).notNull(),
+  timeZone: text('time_zone').notNull(),
+  calendarId: text('calendar_id'),
+  googleEventId: text('google_event_id'),
+  eventUrl: text('event_url'),
+  lastError: jsonb('last_error').$type<{ code: string; message: string } | null>(),
+  createdInCalendarAt: timestamp('created_in_calendar_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index('capture_events_owner_idx').on(t.ownerId)]);
+export type CaptureEventRow = typeof captureEvents.$inferSelect;

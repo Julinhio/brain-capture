@@ -1,18 +1,68 @@
 import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from 'node:crypto';
 import { CodeChallengeMethod, OAuth2Client } from 'google-auth-library';
-import { eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { CalendarDay, CalendarEvent, CalendarSource, DayWindow } from '../../shared/dashboard.js';
 import type { AppDeps } from '../app.js';
-import { calendarConnections } from '../db/schema.js';
+import { calendarConnections, captureEvents } from '../db/schema.js';
 import { sendError } from '../http.js';
 import { dayWindow } from './day.js';
 
-export const CALENDAR_SCOPES = [
-  'https://www.googleapis.com/auth/calendar.events.readonly',
-  'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
-];
+const EVENTS_READ_SCOPE = 'https://www.googleapis.com/auth/calendar.events.readonly';
+export const EVENTS_WRITE_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+const CALENDAR_LIST_SCOPE = 'https://www.googleapis.com/auth/calendar.calendarlist.readonly';
+/**
+ * Requested at every (re)connection. `calendar.events` reads events for the dashboard and
+ * creates the events confirmed from captures; the calendar list stays read-only.
+ */
+export const CALENDAR_SCOPES = [EVENTS_WRITE_SCOPE, CALENDAR_LIST_SCOPE];
+
+function granted(scopes: string): Set<string> {
+  return new Set(scopes.split(' ').filter(Boolean));
+}
+/** Grants made before writing existed (events read-only) keep the dashboard working. */
+export function canReadCalendars(scopes: string): boolean {
+  const g = granted(scopes);
+  return g.has(CALENDAR_LIST_SCOPE) && (g.has(EVENTS_WRITE_SCOPE) || g.has(EVENTS_READ_SCOPE));
+}
+export function canWriteEvents(scopes: string): boolean {
+  return granted(scopes).has(EVENTS_WRITE_SCOPE);
+}
+
+/**
+ * Where the OAuth callback sends the browser back: a path of this app only (the capture a
+ * reconnection started from), never another origin. Anything else falls back to "/".
+ */
+export function safeReturnPath(value: unknown): string {
+  if (typeof value !== 'string' || value.length > 500 || !value.startsWith('/') || value.startsWith('//') || value.includes('\\'))
+    return '/';
+  try {
+    const u = new URL(value, 'http://app.invalid');
+    return u.origin === 'http://app.invalid' ? u.pathname + u.search : '/';
+  } catch {
+    return '/';
+  }
+}
+function withResult(path: string, result: 'connected' | 'failed'): string {
+  const u = new URL(path, 'http://app.invalid');
+  u.searchParams.set('calendar', result);
+  return u.pathname + u.search;
+}
+
+/** An authorised Google client for the stored connection. */
+export function calendarClient(
+  settings: NonNullable<AppDeps['config']['calendar']>,
+  connection: { refreshToken: string },
+): OAuth2Client {
+  const client = new OAuth2Client({
+    clientId: settings.clientId,
+    clientSecret: settings.clientSecret,
+    redirectUri: settings.redirectUri,
+  });
+  client.setCredentials({ refresh_token: unseal(connection.refreshToken, settings.encryptionKey) });
+  return client;
+}
 const STATE_COOKIE = 'bc_calendar_state';
 export function seal(value: string, hexKey: string): string {
   const iv = randomBytes(12);
@@ -218,13 +268,14 @@ export function registerCalendarRoutes(app: FastifyInstance, { db, config }: App
   // and callback requires the same authenticated session, closing login-CSRF.
   app.post('/api/calendar/connect', async (req, reply) => {
     if (!settings) return sendError(reply, 503, 'internal', 'La connexion Google n’est pas encore configurée.');
+    const returnTo = safeReturnPath((req.body as { returnTo?: unknown } | undefined)?.returnTo);
     const client = oauth();
     const state = randomBytes(32).toString('base64url');
     const { codeVerifier, codeChallenge } = await client.generateCodeVerifierAsync();
     reply.setCookie(
       STATE_COOKIE,
       seal(
-        JSON.stringify({ state, codeVerifier, owner: req.user!.id, expires: Date.now() + 600_000 }),
+        JSON.stringify({ state, codeVerifier, owner: req.user!.id, expires: Date.now() + 600_000, returnTo }),
         settings.encryptionKey,
       ),
       {
@@ -252,10 +303,18 @@ export function registerCalendarRoutes(app: FastifyInstance, { db, config }: App
     reply.clearCookie(STATE_COOKIE, { path: '/api/calendar/callback' });
     const query = req.query as { state?: string; code?: string; error?: string };
     if (!settings || !cookie) return reply.redirect('/?calendar=failed');
+    let returnTo = '/';
     try {
       const state = z
-        .object({ state: z.string(), codeVerifier: z.string(), owner: z.uuid(), expires: z.number() })
+        .object({
+          state: z.string(),
+          codeVerifier: z.string(),
+          owner: z.uuid(),
+          expires: z.number(),
+          returnTo: z.string().optional(),
+        })
         .parse(JSON.parse(unseal(cookie, settings.encryptionKey)));
+      returnTo = safeReturnPath(state.returnTo ?? '/');
       const returned = Buffer.from(query.state ?? '');
       const expected = Buffer.from(state.state);
       if (
@@ -286,9 +345,14 @@ export function registerCalendarRoutes(app: FastifyInstance, { db, config }: App
             updatedAt: new Date(),
           },
         });
-      return reply.redirect('/?calendar=connected');
+      // An earlier "reconnect" failure on a capture is now resolved: stop asking for it.
+      await db
+        .update(captureEvents)
+        .set({ lastError: null })
+        .where(and(eq(captureEvents.ownerId, req.user!.id), sql`${captureEvents.lastError}->>'code' = 'calendar_reconnect'`));
+      return reply.redirect(withResult(returnTo, 'connected'));
     } catch {
-      return reply.redirect('/?calendar=failed');
+      return reply.redirect(withResult(returnTo, 'failed'));
     }
   });
   app.delete('/api/calendar/connection', async (req) => {
@@ -309,11 +373,10 @@ export function registerCalendarRoutes(app: FastifyInstance, { db, config }: App
       .where(eq(calendarConnections.ownerId, req.user!.id));
     if (!settings || !connection)
       return sendError(reply, 400, 'invalid_input', 'Connecte Google Calendar avant de choisir tes calendriers.');
-    if (!CALENDAR_SCOPES.every((scope) => connection.grantedScopes.split(' ').includes(scope)))
+    if (!canReadCalendars(connection.grantedScopes))
       return sendError(reply, 400, 'invalid_input', 'Reconnecte Google pour autoriser la liste des calendriers.');
     try {
-      const client = oauth();
-      client.setCredentials({ refresh_token: unseal(connection.refreshToken, settings.encryptionKey) });
+      const client = calendarClient(settings, connection);
       const available = await listCalendars(client);
       if (body.data.calendarIds?.some((id) => !available.some((c) => c.id === id)))
         return sendError(
@@ -354,11 +417,9 @@ export function registerCalendarRoutes(app: FastifyInstance, { db, config }: App
       .from(calendarConnections)
       .where(eq(calendarConnections.ownerId, req.user!.id));
     if (!connection) return { ...empty, state: 'disconnected' };
-    if (!CALENDAR_SCOPES.every((scope) => connection.grantedScopes.split(' ').includes(scope)))
-      return { ...empty, state: 'permission_required' };
+    if (!canReadCalendars(connection.grantedScopes)) return { ...empty, state: 'permission_required' };
     try {
-      const client = oauth();
-      client.setCredentials({ refresh_token: unseal(connection.refreshToken, settings.encryptionKey) });
+      const client = calendarClient(settings, connection);
       return await readCalendarDay(client, window, connection.calendarIds);
     } catch {
       return { ...empty, state: 'error' };

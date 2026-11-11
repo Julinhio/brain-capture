@@ -339,7 +339,7 @@ function CalendarPanel({
 }) {
   const qc = useQueryClient();
   const connect = useMutation({
-    mutationFn: api.connectCalendar,
+    mutationFn: () => api.connectCalendar(),
     onSuccess: ({ url }) => {
       window.location.assign(url);
     },

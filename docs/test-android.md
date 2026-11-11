@@ -41,6 +41,15 @@ Note pour chaque étape : OK, KO (avec ce que tu as vu), ou capture d'écran.
 3. Ouvre une carte : change la catégorie, corrige le texte, puis Mark done. Recharge la page : tout doit être conservé.
 4. Sur le téléphone, History : les changements faits sur le PC doivent apparaître (après rechargement).
 
+## 7. Ajouter à l’agenda
+Prérequis : Google reconnecté avec l’accès aux événements (la carte propose « Reconnecter Google » sinon).
+1. Micro : « Mets dans mon agenda dentiste mardi prochain à 15 h ». Attendu : carte « Ajouter à l’agenda », titre Dentiste, ligne « mar. … · 15:00 → 16:00 » sur le bon mardi.
+2. Appuie sur « Ajouter à l’agenda ». Attendu : « Dans ton agenda » et un lien ; l’événement est dans Google Agenda à 15 h, la transcription en description.
+3. Appuie de nouveau, ou recharge et rouvre la capture depuis History : toujours un seul événement.
+4. Micro en anglais : « Add to my calendar lunch with Sarah on Friday at 12:30 ». Attendu : carte juste, en anglais.
+5. Micro : « Demain, penser à regarder cette offre ». Attendu : aucune carte.
+6. Sur le PC, Ma journée lit toujours le calendrier.
+
 ## Limites connues
 - Pas d'audio conservé : seul le texte est gardé, l'audio est effacé du téléphone après la sauvegarde.
 - Les nouveaux essais d'envoi se font quand l'app est ouverte, pas en arrière-plan.

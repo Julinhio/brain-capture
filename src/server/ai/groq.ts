@@ -1,10 +1,13 @@
 import { buildClassifyMessages, parseClassifyResponse } from './classify-prompt.js';
+import { buildEventMessages, parseEventResponse } from './event-prompt.js';
 import {
   AiRejectedError,
   AiUnavailableError,
   type Ai,
   type ClassifyInput,
   type ClassifyResult,
+  type EventExtractInput,
+  type EventExtraction,
   type ProviderErrorDetail,
   type TranscribeInput,
 } from './types.js';
@@ -12,6 +15,7 @@ import {
 const GROQ_BASE = 'https://api.groq.com/openai/v1';
 const TRANSCRIBE_TIMEOUT_MS = 90_000;
 const CLASSIFY_TIMEOUT_MS = 20_000;
+const EVENT_TIMEOUT_MS = 25_000;
 
 interface GroqOptions {
   apiKey: string;
@@ -116,6 +120,23 @@ export function createGroqAi(options: GroqOptions): Ai {
       if (!result) throw new AiUnavailableError('Groq classification returned an unusable answer');
       return result;
     },
+
+    async extractEvent(input: EventExtractInput): Promise<EventExtraction> {
+      const body = JSON.stringify({
+        model: options.classifyModel,
+        messages: buildEventMessages(input),
+        response_format: { type: 'json_object' },
+        reasoning_effort: 'medium',
+        max_completion_tokens: 2000,
+      });
+      const data = (await groqFetch(fetchImpl, options.apiKey, '/chat/completions', body, EVENT_TIMEOUT_MS, {
+        'Content-Type': 'application/json',
+      })) as { choices?: { message?: { content?: unknown } }[] };
+      const content = data.choices?.[0]?.message?.content;
+      const result = typeof content === 'string' ? parseEventResponse(content) : null;
+      if (!result) throw new AiUnavailableError('Groq event extraction returned an unusable answer');
+      return result;
+    },
   };
 }
 
@@ -128,6 +149,9 @@ export function createUnavailableAi(): Ai {
     },
     async classify() {
       throw new AiUnavailableError('Classification is not configured (GROQ_API_KEY missing)');
+    },
+    async extractEvent() {
+      throw new AiUnavailableError('Event extraction is not configured (GROQ_API_KEY missing)');
     },
   };
 }

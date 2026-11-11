@@ -20,9 +20,11 @@ restent acceptés. Les tokens Google ne sont jamais exportés.
 
 ## Google Calendar
 
-Google Cloud : client OAuth Web, Google Calendar API activée, scopes de lecture seule :
-`https://www.googleapis.com/auth/calendar.events.readonly` et
-`https://www.googleapis.com/auth/calendar.calendarlist.readonly`.
+Google Cloud : client OAuth Web, Google Calendar API activée, scopes
+`https://www.googleapis.com/auth/calendar.events` (lecture du jour et ajout des événements
+confirmés depuis une capture, voir `docs/calendar-events.md`) et
+`https://www.googleapis.com/auth/calendar.calendarlist.readonly`. Les connexions faites avec
+l’ancien scope `calendar.events.readonly` continuent d’alimenter le dashboard.
 
 Variables serveur à définir ensemble : GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
 GOOGLE_REDIRECT_URI, CALENDAR_ENCRYPTION_KEY (32 octets aléatoires en hexadécimal).
@@ -30,7 +32,7 @@ Tous les calendriers possédés et non masqués sont inclus par défaut. Les aut
 calendriers accessibles restent désactivés. La sélection se corrige dans Ma journée,
 se conserve avec la connexion et peut revenir au mode automatique avec « Tous mes
 calendriers ». Une sélection vide reste vide. L’ancien GOOGLE_CALENDAR_ID est ignoré.
-L’écriture d’événements Google reste hors périmètre.
+L’écriture se limite aux événements confirmés depuis une capture, dans le calendrier principal.
 
 URI de retour de production :
 `https://brain-capture-production-8fa2.up.railway.app/api/calendar/callback`.

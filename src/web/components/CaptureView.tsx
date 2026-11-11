@@ -6,6 +6,7 @@ import type { Capture } from '../../shared/types';
 import { useUpdateCapture } from '../lib/useCaptures';
 import { CategoryOptions } from './CategoryPicker';
 import { CategoryIcon } from './CategoryIcon';
+import { EventCard } from './EventCard';
 import { ProjectLinks } from './ProjectLinks';
 
 const SOURCE_LABEL = { voice: 'Transcription', text: 'Note', link: 'Note' } as const;
@@ -87,6 +88,8 @@ export function CaptureView({
           </button>
         </h1>
       )}
+
+      <EventCard captureId={capture.id} />
 
       <section className="block" aria-labelledby="category-label">
         <div className="block-head">
