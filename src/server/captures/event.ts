@@ -189,7 +189,7 @@ export interface EventFailure {
   message: string;
 }
 
-const RECONNECT = 'Ta connexion Google a expiré ou a été retirée. Reconnecte ton compte Google.';
+const RECONNECT = 'Your Google connection expired or was removed. Reconnect your Google account.';
 
 /** Turns a Google failure into something Julien can act on. Never echoes tokens. */
 export function describeGoogleError(err: unknown): EventFailure {
@@ -204,20 +204,20 @@ export function describeGoogleError(err: unknown): EventFailure {
   if (data?.error === 'invalid_grant' || /invalid_grant/.test(e?.message ?? '') || status === 401)
     return { status: 403, code: 'calendar_reconnect', message: RECONNECT };
   if (status === 429 || ['rateLimitExceeded', 'userRateLimitExceeded', 'quotaExceeded'].some((r) => reasons.has(r)))
-    return { status: 503, code: 'calendar_unavailable', message: 'Google limite les requêtes pour le moment. Réessaie dans une minute.' };
+    return { status: 503, code: 'calendar_unavailable', message: 'Google is limiting requests right now. Try again in a minute.' };
   if (status === 403)
     return {
       status: 403,
       code: 'calendar_reconnect',
-      message: 'Google refuse l’ajout dans ton agenda. Reconnecte Google et accepte l’accès aux événements.',
+      message: 'Google refused to add it to your calendar. Reconnect Google and allow access to events.',
     };
   if (status === 400) {
     const detail = (apiError?.message ?? '').replace(/\s+/g, ' ').slice(0, 200);
-    return { status: 400, code: 'invalid_input', message: `Google a refusé cet événement${detail ? ` : ${detail}` : '.'}` };
+    return { status: 400, code: 'invalid_input', message: `Google refused this event${detail ? `: ${detail}` : '.'}` };
   }
   if (status === 404)
-    return { status: 503, code: 'calendar_unavailable', message: 'Ton agenda principal est introuvable chez Google.' };
-  return { status: 503, code: 'calendar_unavailable', message: 'Google Agenda ne répond pas. Réessaie dans un instant.' };
+    return { status: 503, code: 'calendar_unavailable', message: 'Your main calendar was not found at Google.' };
+  return { status: 503, code: 'calendar_unavailable', message: 'Google Calendar is not responding. Try again in a moment.' };
 }
 
 async function writeAccess(db: Db, config: Config, ownerId: string): Promise<CalendarWriteAccess> {
@@ -274,7 +274,7 @@ async function confirmNow(
     .select()
     .from(captureEvents)
     .where(and(eq(captureEvents.captureId, captureId), eq(captureEvents.ownerId, ownerId)));
-  if (!row) return { ok: false, status: 404, code: 'not_found', message: 'Aucune proposition d’agenda pour cette capture.' };
+  if (!row) return { ok: false, status: 404, code: 'not_found', message: 'No calendar proposal for this capture.' };
   if (row.state === 'created') return { ok: true, row };
   const problem = draftProblem(draft);
   if (problem) return { ok: false, status: 400, code: 'invalid_input', message: problem };
@@ -294,14 +294,14 @@ async function confirmNow(
     .where(and(eq(captureEvents.captureId, captureId), eq(captureEvents.state, row.state)));
 
   const settings = config.calendar;
-  if (!settings) return fail({ status: 503, code: 'calendar_unavailable', message: 'La connexion Google n’est pas configurée sur le serveur.' });
+  if (!settings) return fail({ status: 503, code: 'calendar_unavailable', message: 'The Google connection is not configured on the server.' });
   const [connection] = await db.select().from(calendarConnections).where(eq(calendarConnections.ownerId, ownerId));
-  if (!connection) return fail({ status: 403, code: 'calendar_reconnect', message: 'Connecte Google Agenda pour ajouter cet événement.' });
+  if (!connection) return fail({ status: 403, code: 'calendar_reconnect', message: 'Connect Google Calendar to add this event.' });
   if (!canWriteEvents(connection.grantedScopes))
     return fail({
       status: 403,
       code: 'calendar_reconnect',
-      message: 'Brain Capture n’a pas encore le droit d’ajouter des événements. Reconnecte Google pour l’autoriser.',
+      message: 'Brain Capture is not yet allowed to add events. Reconnect Google to allow it.',
     });
 
   const [capture] = await db.select().from(captures).where(and(eq(captures.id, captureId), eq(captures.ownerId, ownerId)));
@@ -383,7 +383,7 @@ export function registerCaptureEventRoutes(app: FastifyInstance, { db, ai, confi
     const params = idParams.safeParse(req.params);
     if (!params.success) return sendError(reply, 404, 'not_found', 'Capture not found.');
     const body = z.object({ draft: draftSchema }).strict().safeParse(req.body);
-    if (!body.success) return sendError(reply, 400, 'invalid_input', 'Événement invalide.');
+    if (!body.success) return sendError(reply, 400, 'invalid_input', 'Invalid event.');
     const result = await confirmEvent(db, config, req.user!.id, params.data.id, cleanDraft(body.data.draft), req.log);
     if (!result.ok) return sendError(reply, result.status, result.code, result.message);
     return respond(req.user!.id, result.row);
@@ -399,7 +399,7 @@ export function registerCaptureEventRoutes(app: FastifyInstance, { db, ai, confi
       .strict()
       .refine((b) => b.state || b.draft)
       .safeParse(req.body);
-    if (!body.success) return sendError(reply, 400, 'invalid_input', 'Changement invalide.');
+    if (!body.success) return sendError(reply, 400, 'invalid_input', 'Invalid change.');
     const owned = and(eq(captureEvents.captureId, params.data.id), eq(captureEvents.ownerId, req.user!.id));
     if (body.data.draft)
       await db
@@ -419,7 +419,7 @@ export function registerCaptureEventRoutes(app: FastifyInstance, { db, ai, confi
     const params = idParams.safeParse(req.params);
     if (!params.success) return sendError(reply, 404, 'not_found', 'Capture not found.');
     const row = await ownedEvent(req.user!.id, params.data.id);
-    if (!row) return sendError(reply, 404, 'not_found', 'Aucune proposition d’agenda pour cette capture.');
+    if (!row) return sendError(reply, 404, 'not_found', 'No calendar proposal for this capture.');
     if (row.state === 'created') return respond(req.user!.id, row);
     const [capture] = await db.select().from(captures).where(eq(captures.id, row.captureId));
     if (!capture) return sendError(reply, 404, 'not_found', 'Capture not found.');
@@ -430,7 +430,7 @@ export function registerCaptureEventRoutes(app: FastifyInstance, { db, ai, confi
       draft = normalizeExtraction(answer, { timeZone: row.timeZone, fallbackTitle: row.draft.title });
     } catch (err) {
       req.log.warn({ err: (err as Error).message }, 'event extraction failed');
-      return sendError(reply, 503, 'internal', 'La lecture automatique est indisponible. Complète les champs à la main.');
+      return sendError(reply, 503, 'internal', 'Automatic reading is unavailable. Fill in the fields by hand.');
     }
     const [updated] = await db
       .update(captureEvents)

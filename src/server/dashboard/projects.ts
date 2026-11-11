@@ -48,14 +48,14 @@ export function registerProjectRoutes(app: FastifyInstance, { db }: AppDeps) {
   app.get('/api/projects', async (req) => ({ projects: await listProjects(db, req.user!.id) }));
   app.post('/api/projects', async (req, reply) => {
     const parsed = createFields.safeParse(req.body);
-    if (!parsed.success) return sendError(reply, 400, 'invalid_input', 'Le projet est incomplet ou trop long.');
+    if (!parsed.success) return sendError(reply, 400, 'invalid_input', 'This project is incomplete or too long.');
     const { captureId, ...input } = parsed.data;
     if (captureId) {
       const [capture] = await db
         .select({ id: captures.id })
         .from(captures)
         .where(and(eq(captures.id, captureId), eq(captures.ownerId, req.user!.id)));
-      if (!capture) return sendError(reply, 404, 'not_found', 'Capture introuvable.');
+      if (!capture) return sendError(reply, 404, 'not_found', 'Capture not found.');
     }
     const row = await db.transaction(async (tx) => {
       const [row] = await tx
@@ -74,23 +74,23 @@ export function registerProjectRoutes(app: FastifyInstance, { db }: AppDeps) {
       .strict()
       .refine((v) => Object.keys(v).length > 0)
       .safeParse(req.body);
-    if (!p.success || !body.success) return sendError(reply, 400, 'invalid_input', 'Modification de projet invalide.');
+    if (!p.success || !body.success) return sendError(reply, 400, 'invalid_input', 'This project change is not valid.');
     const [row] = await db
       .update(projects)
       .set({ ...body.data, updatedAt: new Date() })
       .where(and(eq(projects.id, p.data.id), eq(projects.ownerId, req.user!.id)))
       .returning({ id: projects.id });
-    if (!row) return sendError(reply, 404, 'not_found', 'Projet introuvable.');
+    if (!row) return sendError(reply, 404, 'not_found', 'Project not found.');
     return row;
   });
   app.get('/api/projects/:id/captures', async (req, reply) => {
     const p = params.safeParse(req.params);
-    if (!p.success) return sendError(reply, 404, 'not_found', 'Projet introuvable.');
+    if (!p.success) return sendError(reply, 404, 'not_found', 'Project not found.');
     const [project] = await db
       .select()
       .from(projects)
       .where(and(eq(projects.id, p.data.id), eq(projects.ownerId, req.user!.id)));
-    if (!project) return sendError(reply, 404, 'not_found', 'Projet introuvable.');
+    if (!project) return sendError(reply, 404, 'not_found', 'Project not found.');
     const rows = await db
       .select({ capture: captures })
       .from(projectCaptures)
@@ -101,12 +101,12 @@ export function registerProjectRoutes(app: FastifyInstance, { db }: AppDeps) {
   });
   app.get('/api/captures/:id/projects', async (req, reply) => {
     const p = params.safeParse(req.params);
-    if (!p.success) return sendError(reply, 404, 'not_found', 'Capture introuvable.');
+    if (!p.success) return sendError(reply, 404, 'not_found', 'Capture not found.');
     const [capture] = await db
       .select({ id: captures.id })
       .from(captures)
       .where(and(eq(captures.id, p.data.id), eq(captures.ownerId, req.user!.id)));
-    if (!capture) return sendError(reply, 404, 'not_found', 'Capture introuvable.');
+    if (!capture) return sendError(reply, 404, 'not_found', 'Capture not found.');
     const rows = await db
       .select({ id: projects.id })
       .from(projectCaptures)
@@ -116,7 +116,7 @@ export function registerProjectRoutes(app: FastifyInstance, { db }: AppDeps) {
   });
   app.put('/api/projects/:id/captures/:captureId', async (req, reply) => {
     const p = linkParams.safeParse(req.params);
-    if (!p.success) return sendError(reply, 400, 'invalid_input', 'Lien de projet invalide.');
+    if (!p.success) return sendError(reply, 400, 'invalid_input', 'This project link is not valid.');
     const [project] = await db
       .select({ id: projects.id })
       .from(projects)
@@ -125,18 +125,18 @@ export function registerProjectRoutes(app: FastifyInstance, { db }: AppDeps) {
       .select({ id: captures.id })
       .from(captures)
       .where(and(eq(captures.id, p.data.captureId), eq(captures.ownerId, req.user!.id)));
-    if (!project || !capture) return sendError(reply, 404, 'not_found', 'Projet ou capture introuvable.');
+    if (!project || !capture) return sendError(reply, 404, 'not_found', 'Project or capture not found.');
     await db.insert(projectCaptures).values({ projectId: project.id, captureId: capture.id }).onConflictDoNothing();
     return { ok: true };
   });
   app.delete('/api/projects/:id/captures/:captureId', async (req, reply) => {
     const p = linkParams.safeParse(req.params);
-    if (!p.success) return sendError(reply, 400, 'invalid_input', 'Lien de projet invalide.');
+    if (!p.success) return sendError(reply, 400, 'invalid_input', 'This project link is not valid.');
     const [project] = await db
       .select({ id: projects.id })
       .from(projects)
       .where(and(eq(projects.id, p.data.id), eq(projects.ownerId, req.user!.id)));
-    if (!project) return sendError(reply, 404, 'not_found', 'Projet introuvable.');
+    if (!project) return sendError(reply, 404, 'not_found', 'Project not found.');
     await db
       .delete(projectCaptures)
       .where(and(eq(projectCaptures.projectId, project.id), eq(projectCaptures.captureId, p.data.captureId)));
@@ -152,7 +152,7 @@ export function registerProjectRoutes(app: FastifyInstance, { db }: AppDeps) {
           .parse((req.query as { timeZone?: string }).timeZone ?? 'Europe/Paris'),
       );
     } catch {
-      return sendError(reply, 400, 'invalid_input', 'Fuseau horaire invalide.');
+      return sendError(reply, 400, 'invalid_input', 'Invalid time zone.');
     }
     const condition = and(
       eq(captures.ownerId, req.user!.id),

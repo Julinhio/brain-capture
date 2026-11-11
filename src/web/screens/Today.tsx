@@ -28,7 +28,7 @@ function useClock() {
   }, []);
   return now;
 }
-const time = (value: string) => new Date(value).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+const time = (value: string) => new Date(value).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 const dateKey = (d: Date) =>
   new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
 
@@ -99,22 +99,22 @@ export function Today({ onOpen }: { onOpen: (id: string) => void }) {
         <header className="today-heading today-welcome">
           <div>
             <p className="mono">
-              {now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+              {now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
             </p>
-            <h1>{now.getHours() < 18 ? 'Bonjour, Julien.' : 'Bonsoir, Julien.'}</h1>
-            <p className="lead">Ta journée en perspective.</p>
+            <h1>{now.getHours() < 12 ? 'Good morning, Julien.' : now.getHours() < 18 ? 'Good afternoon, Julien.' : 'Good evening, Julien.'}</h1>
+            <p className="lead">Your day at a glance.</p>
           </div>
         </header>
         <section className="morning-brief" aria-labelledby="brief-title">
           <div className="brief-heading">
             <h2 id="brief-title">
               <Sparkles size={16} aria-hidden="true" />
-              Le fil du jour
+              Today's brief
             </h2>
             <button
               className="brief-refresh"
               type="button"
-              aria-label="Actualiser"
+              aria-label="Refresh"
               onClick={() => {
                 void qc.invalidateQueries({ queryKey: ['calendar'] });
                 void qc.invalidateQueries({ queryKey: ['radars'] });
@@ -123,7 +123,7 @@ export function Today({ onOpen }: { onOpen: (id: string) => void }) {
               }}
             >
               <RefreshCw size={14} aria-hidden="true" />
-              Actualiser
+              Refresh
             </button>
           </div>
           <div className="brief-appointment">
@@ -132,44 +132,44 @@ export function Today({ onOpen }: { onOpen: (id: string) => void }) {
               next ? (
                 <>
                   <span className="brief-time">
-                    {Date.parse(next.start) <= now.getTime() ? 'En cours' : time(next.start)}
+                    {Date.parse(next.start) <= now.getTime() ? 'Now' : time(next.start)}
                   </span>
                   <strong>{next.title}</strong>
                 </>
               ) : (
-                <span>Plus de rendez-vous aujourd’hui</span>
+                <span>No more appointments today</span>
               )
             ) : (
               <span>
                 {calendar.isPending
-                  ? 'Lecture du calendrier…'
+                  ? 'Reading your calendar…'
                   : calendar.data?.state === 'ready' && !hasCalendarSelection
-                    ? 'Choisis les calendriers à inclure'
+                    ? 'Choose the calendars to include'
                     : calendar.data?.state === 'permission_required'
-                      ? 'Reconnecte Google pour inclure tous tes calendriers'
+                      ? 'Reconnect Google to include all your calendars'
                       : calendar.data?.state === 'partial'
-                        ? 'Journée incomplète · un calendrier ne répond pas'
+                        ? 'Incomplete day · a calendar is not responding'
                         : calendar.isError || calendar.data?.state === 'error'
-                          ? 'Calendrier indisponible'
-                          : 'Calendrier à connecter'}
+                          ? 'Calendar unavailable'
+                          : 'Calendar not connected'}
               </span>
             )}
           </div>
           <dl className="brief-metrics">
             <div data-axis="jobs">
-              <dt>Offres à voir</dt>
+              <dt>Offers to review</dt>
               <dd>{jobsToReview ?? '—'}</dd>
             </div>
             <div data-axis="automata">
-              <dt>Prospects à vérifier</dt>
+              <dt>Leads to check</dt>
               <dd>{leadsToReview ?? '—'}</dd>
             </div>
             <div>
-              <dt>Captures hier</dt>
+              <dt>Captures yesterday</dt>
               <dd>{!today.isError ? (today.data?.yesterday.count ?? '—') : '—'}</dd>
             </div>
             <div>
-              <dt>Projets en cours</dt>
+              <dt>Active projects</dt>
               <dd>{projects.isSuccess ? active.length : '—'}</dd>
             </div>
           </dl>
@@ -177,7 +177,7 @@ export function Today({ onOpen }: { onOpen: (id: string) => void }) {
       </div>
       {calendarResult === 'failed' && (
         <p className="field-error" role="alert">
-          La connexion Google n’a pas abouti. Tu peux réessayer ci-dessous.
+          The Google connection did not go through. You can try again below.
         </p>
       )}
       <CalendarPanel
@@ -189,20 +189,20 @@ export function Today({ onOpen }: { onOpen: (id: string) => void }) {
       />
       <div className="today-section-head">
         <div>
-          <p className="mono">Garder le cap</p>
-          <h2>Mes radars</h2>
+          <p className="mono">Stay on course</p>
+          <h2>My radars</h2>
         </div>
-        <span className="hint">Le volume, le mouvement, le suivi.</span>
+        <span className="hint">Volume, movement, follow-up.</span>
       </div>
       <div className="radar-grid">
         <RadarCard
-          title="Radar Emploi"
+          title="Job Radar"
           kind="jobs"
           data={radars.isError ? undefined : radars.data?.jobs}
           loading={radars.isPending}
         />
         <RadarCard
-          title="Radar Automata"
+          title="Automata Radar"
           kind="automata"
           data={radars.isError ? undefined : radars.data?.automata}
           loading={radars.isPending}
@@ -211,23 +211,23 @@ export function Today({ onOpen }: { onOpen: (id: string) => void }) {
       <section className="today-projects" aria-labelledby="today-projects-title">
         <div className="today-section-head">
           <div>
-            <p className="mono">Construire</p>
-            <h2 id="today-projects-title">Mes projets</h2>
+            <p className="mono">Build</p>
+            <h2 id="today-projects-title">My projects</h2>
           </div>
           <button className="link-btn" type="button" onClick={() => navigate('/?view=workspace')}>
-            Voir les projets <ArrowRight size={16} aria-hidden="true" />
+            See projects <ArrowRight size={16} aria-hidden="true" />
           </button>
         </div>
-        {projects.isError && <p className="field-error">Actualisation des projets impossible.</p>}
+        {projects.isError && <p className="field-error">Projects could not be refreshed.</p>}
         <div className="project-summary">
           <span>
-            <strong>{active.length}</strong>En cours
+            <strong>{active.length}</strong>Active
           </span>
           <span>
-            <strong>{upcoming.length}</strong>À venir
+            <strong>{upcoming.length}</strong>Upcoming
           </span>
           <span>
-            <strong>{ideas.length}</strong>Idées en réserve
+            <strong>{ideas.length}</strong>Ideas on hold
           </span>
         </div>
         <div className="today-project-list">
@@ -248,7 +248,7 @@ export function Today({ onOpen }: { onOpen: (id: string) => void }) {
                   {PROJECT_LABELS[p.state]}
                 </span>
                 <strong>{p.name}</strong>
-                <span className="hint">{p.nextStep || p.intention || 'La prochaine étape reste à définir.'}</span>
+                <span className="hint">{p.nextStep || p.intention || 'Next step still to define.'}</span>
               </span>
               <ChevronRight size={18} aria-hidden="true" />
             </button>
@@ -258,11 +258,11 @@ export function Today({ onOpen }: { onOpen: (id: string) => void }) {
           <div className="project-invitation">
             <Lightbulb size={24} aria-hidden="true" />
             <div>
-              <h3>Les idées ont leur place ici.</h3>
-              <p>Crée un projet ou transforme une capture en point de départ.</p>
+              <h3>Ideas have a place here.</h3>
+              <p>Create a project, or turn a capture into a starting point.</p>
             </div>
             <button type="button" className="btn" onClick={() => navigate('/?view=workspace')}>
-              Organiser mes projets
+              Organize my projects
             </button>
           </div>
         )}
@@ -270,8 +270,8 @@ export function Today({ onOpen }: { onOpen: (id: string) => void }) {
       <section aria-labelledby="yesterday-title">
         <div className="today-section-head">
           <div>
-            <p className="mono">Le fil d’hier</p>
-            <h2 id="yesterday-title">Ce que tu as posé</h2>
+            <p className="mono">Yesterday</p>
+            <h2 id="yesterday-title">What you captured</h2>
           </div>
           {today.data && (
             <span className="hint">
@@ -279,10 +279,10 @@ export function Today({ onOpen }: { onOpen: (id: string) => void }) {
             </span>
           )}
         </div>
-        {today.isError && <p className="field-error">Les captures de la veille n’ont pas pu être chargées.</p>}
+        {today.isError && <p className="field-error">Yesterday's captures could not be loaded.</p>}
         {today.isPending && (
           <p className="hint" role="status">
-            Chargement…
+            Loading…
           </p>
         )}
         <div className="yesterday-grid">
@@ -300,7 +300,7 @@ export function Today({ onOpen }: { onOpen: (id: string) => void }) {
                   <button type="button" className="yesterday-note" key={c.id} onClick={() => onOpen(c.id)}>
                     <span>{c.title ?? c.text.slice(0, 100)}</span>
                     <span className="hint">
-                      {c.status === 'done' ? 'Terminée' : c.status === 'archived' ? 'Archivée' : time(c.createdAt)}
+                      {c.status === 'done' ? 'Done' : c.status === 'archived' ? 'Archived' : time(c.createdAt)}
                     </span>
                   </button>
                 ))}
@@ -309,13 +309,13 @@ export function Today({ onOpen }: { onOpen: (id: string) => void }) {
           })}
         </div>
         {today.data?.yesterday.count === 0 && (
-          <p className="hint">Aucune capture hier. Tout reste accessible dans Everything.</p>
+          <p className="hint">No captures yesterday. Everything is still in Everything.</p>
         )}
         {today.data && today.data.yesterday.count > today.data.yesterday.captures.length && (
           <p className="hint">
-            Les {today.data.yesterday.captures.length} dernières captures sont affichées.{' '}
+            Showing the last {today.data.yesterday.captures.length} captures.{' '}
             <button type="button" className="link-btn" onClick={() => navigate('/?view=everything')}>
-              Tout retrouver dans Everything
+              See them all in Everything
             </button>
           </p>
         )}
@@ -383,7 +383,7 @@ function CalendarPanel({
       <div className="today-section-head">
         <h2 id="calendar-title">
           <CalendarDays size={20} aria-hidden="true" />
-          Ma journée
+          My day
         </h2>
         <div className="calendar-controls">
           <span className="hint">{Intl.DateTimeFormat().resolvedOptions().timeZone}</span>
@@ -395,16 +395,16 @@ function CalendarPanel({
               onClick={() => disconnect.mutate()}
             >
               <Unplug size={14} aria-hidden="true" />
-              Déconnecter
+              Disconnect
             </button>
           )}
         </div>
       </div>
       {connected && calendars.length > 0 && (
-        <div className="calendar-selection" role="group" aria-label="Calendriers inclus">
+        <div className="calendar-selection" role="group" aria-label="Included calendars">
           <div className="calendar-selection-head">
             <span className="hint">
-              {selectedIds.length} calendrier{selectedIds.length > 1 ? 's' : ''} inclus
+              {selectedIds.length} calendar{selectedIds.length === 1 ? '' : 's'} included
             </span>
             <button
               type="button"
@@ -412,7 +412,7 @@ function CalendarPanel({
               disabled={selection.isPending}
               onClick={() => selection.mutate(null)}
             >
-              Tous mes calendriers
+              All my calendars
             </button>
           </div>
           <div className="calendar-options">
@@ -430,7 +430,7 @@ function CalendarPanel({
                 />
                 <span className="calendar-color" style={{ backgroundColor: c.color }} aria-hidden="true" />
                 <span>{c.name}</span>
-                {c.loadState === 'error' && <span className="field-error">Indisponible</span>}
+                {c.loadState === 'error' && <span className="field-error">Unavailable</span>}
               </label>
             ))}
           </div>
@@ -438,22 +438,22 @@ function CalendarPanel({
       )}
       {selection.isError && (
         <p className="field-error" role="alert">
-          Sélection non enregistrée. {selection.error.message}
+          Selection not saved. {selection.error.message}
         </p>
       )}
       {data?.state === 'partial' && (
         <p className="calendar-incomplete" role="status">
-          Journée incomplète :{' '}
+          Incomplete day:{' '}
           {calendars
             .filter((c) => c.selected && c.loadState === 'error')
             .map((c) => c.name)
-            .join(', ') || 'un calendrier sélectionné n’est plus accessible'}
-          . Les disponibilités ne peuvent pas être calculées pour l’ensemble de la journée.
+            .join(', ') || 'a selected calendar is no longer accessible'}
+          . Free time cannot be worked out for the whole day.
         </p>
       )}
       {loading ? (
         <p className="hint" role="status">
-          Lecture du calendrier…
+          Reading your calendar…
         </p>
       ) : connected ? (
         <>
@@ -461,20 +461,20 @@ function CalendarPanel({
             <>
               <div className="day-stats">
                 <span>
-                  <strong>{events.length}</strong> rendez-vous & événements
+                  <strong>{events.length}</strong> appointments & events
                 </span>
                 <span>
                   <strong>
-                    {hours} h{minutes ? ` ${minutes}` : ''}
+                    {hours} h{minutes ? ` ${minutes} min` : ''}
                   </strong>{' '}
-                  sans rendez-vous de 8 h à 20 h
+                  free between 8:00 and 20:00
                 </span>
               </div>
               <div
                 className="day-timeline"
                 style={{ height: Math.max(34, sourceLanes.length * 12 + 8) }}
                 role="img"
-                aria-label={`Disponibilités de 8 h à 20 h : ${rhythm.freeMinutes} minutes sans rendez-vous. Les horaires détaillés suivent.`}
+                aria-label={`Free time between 8:00 and 20:00: ${rhythm.freeMinutes} minutes without appointments. Detailed times follow.`}
               >
                 {busySlots.map(({ event, start, end, lane }) => (
                   <span
@@ -499,16 +499,15 @@ function CalendarPanel({
               </div>
               <div className="timeline-labels" aria-hidden="true">
                 {[8, 10, 12, 14, 16, 18, 20].map((h) => (
-                  <span key={h}>{h} h</span>
+                  <span key={h}>{h}:00</span>
                 ))}
               </div>
             </>
           ) : selectedIds.length === 0 && data?.state !== 'partial' ? (
-            <p className="hint">Aucun calendrier sélectionné. Choisis les calendriers à inclure dans ta journée.</p>
+            <p className="hint">No calendar selected. Choose the calendars to include in your day.</p>
           ) : (
             <p className="hint">
-              {events.length} événement{events.length > 1 ? 's' : ''} chargé{events.length > 1 ? 's' : ''}, lecture
-              partielle.
+              {events.length} event{events.length === 1 ? '' : 's'} loaded, partial reading.
             </p>
           )}
           {allDay.length > 0 && (
@@ -517,7 +516,7 @@ function CalendarPanel({
                 <span key={e.id}>
                   {e.title}
                   <small>
-                    {e.calendarName ? `${e.calendarName} · ` : ''}Toute la journée{!e.busy ? ' · disponible' : ''}
+                    {e.calendarName ? `${e.calendarName} · ` : ''}All day{!e.busy ? ' · free' : ''}
                   </small>
                 </span>
               ))}
@@ -534,7 +533,7 @@ function CalendarPanel({
                 <div>
                   <strong>{e.title}</strong>
                   {e.calendarName && <span className="event-calendar">{e.calendarName}</span>}
-                  {!e.busy && <span className="hint">Ne bloque pas ta disponibilité</span>}
+                  {!e.busy && <span className="hint">Does not block your time</span>}
                 </div>
                 {e.url && (
                   <a
@@ -542,7 +541,7 @@ function CalendarPanel({
                     href={e.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    aria-label={`Ouvrir ${e.title} dans Google Calendar`}
+                    aria-label={`Open ${e.title} in Google Calendar`}
                   >
                     <ArrowUpRight size={16} />
                   </a>
@@ -551,11 +550,11 @@ function CalendarPanel({
             ))}
           </div>
           {!events.length && complete && (
-            <p className="hint">Aucun événement aujourd’hui dans les calendriers sélectionnés.</p>
+            <p className="hint">No events today in the selected calendars.</p>
           )}
           {complete && rhythm.free.length > 0 && (
             <div className="free-windows">
-              <span className="mono">Plages sans rendez-vous</span>
+              <span className="mono">Free slots</span>
               {rhythm.free
                 .filter(([a, b]) => b - a >= 30 * 60_000)
                 .map(([a, b]) => (
@@ -565,7 +564,7 @@ function CalendarPanel({
                 ))}
             </div>
           )}
-          <p className="calendar-freshness">Google Calendar · lecture seule · actualisé à {time(data.checkedAt!)}</p>
+          <p className="calendar-freshness">Google Calendar · updated at {time(data.checkedAt!)}</p>
         </>
       ) : (
         <div className="source-empty">
@@ -573,29 +572,29 @@ function CalendarPanel({
           <div>
             <h3>
               {data?.state === 'permission_required'
-                ? 'Inclure tous tes calendriers'
+                ? 'Include all your calendars'
                 : error || data?.state === 'error'
-                  ? 'Calendrier momentanément indisponible'
-                  : 'Donner un rythme à ta journée'}
+                  ? 'Calendar temporarily unavailable'
+                  : 'Give your day a rhythm'}
             </h3>
             <p>
               {data?.state === 'permission_required'
-                ? 'Reconnecte Google pour autoriser la lecture de la liste de tes calendriers. Tes calendriers personnels seront inclus ensemble, sans modifier tes événements.'
+                ? 'Reconnect Google to allow reading the list of your calendars. Your own calendars will then be included together.'
                 : data?.state === 'unconfigured'
-                  ? 'La connexion Google doit être configurée avant de pouvoir relier ton calendrier.'
+                  ? 'The Google connection must be configured before your calendar can be linked.'
                   : error || data?.state === 'error'
-                    ? 'Les rendez-vous ne sont pas connus. Réessaie ou reconnecte Google Calendar.'
-                    : 'Relie tes calendriers pour retrouver toute ta journée et tes plages disponibles.'}
+                    ? 'Your appointments are unknown right now. Try again or reconnect Google Calendar.'
+                    : 'Link your calendars to see your whole day and your free slots.'}
             </p>
           </div>
           {data?.state !== 'unconfigured' && (
             <button className="btn" type="button" disabled={connect.isPending} onClick={() => connect.mutate()}>
               <Plug size={16} aria-hidden="true" />
               {connect.isPending
-                ? 'Connexion…'
+                ? 'Connecting…'
                 : data?.state === 'permission_required'
-                  ? 'Reconnecter mes calendriers'
-                  : 'Connecter Google Calendar'}
+                  ? 'Reconnect my calendars'
+                  : 'Connect Google Calendar'}
             </button>
           )}
         </div>
@@ -607,6 +606,40 @@ function CalendarPanel({
       )}
     </section>
   );
+}
+
+// The radars are French apps; their counters are named in English here, keyed by their
+// stable keys. An unknown key keeps the label sent by the source.
+const RADAR_LABELS: Record<'jobs' | 'automata', Record<string, string>> = {
+  jobs: {
+    a_voir: 'To review',
+    a_tenter: 'Worth a try',
+    interessante: 'Interesting',
+    postule: 'Applied',
+    ecartee: 'Dismissed',
+    rejected: 'Not kept by AI',
+    a_relire: 'To re-check',
+    pending: 'Awaiting sorting',
+    errors: 'Sorting errors',
+    prioritaires: 'Priority offers (within To review)',
+    duplicates: 'Duplicates excluded',
+  },
+  automata: {
+    a_verifier: 'To check',
+    contactee: 'Contacted',
+    audit_propose: 'Audit proposed',
+    audit_fait: 'Audit done',
+    mission: 'Missions',
+    ecartee: 'Dismissed',
+  },
+};
+const count = (n: number) => n.toLocaleString('en-GB');
+
+/** The figure a radar card leads with: offers to review for jobs, the total for Automata. */
+export function radarHeadline(kind: 'jobs' | 'automata', data: Pick<RadarSummary, 'total' | 'segments'>) {
+  const toReview = kind === 'jobs' ? data.segments.find((m) => m.key === 'a_voir') : undefined;
+  if (toReview) return { value: toReview.value, label: `offer${toReview.value === 1 ? '' : 's'} to review`, total: data.total };
+  return { value: data.total, label: kind === 'jobs' ? 'unique offers in total' : 'companies (agencies excluded)', total: null };
 }
 
 function RadarCard({
@@ -621,6 +654,8 @@ function RadarCard({
   loading: boolean;
 }) {
   const ready = data?.state === 'ready';
+  const label = (m: { key: string; label: string }) => RADAR_LABELS[kind][m.key] ?? m.label;
+  const headline = ready ? radarHeadline(kind, data) : null;
   return (
     <section className="radar-card" data-radar={kind} aria-label={title}>
       <div className="radar-card-head">
@@ -632,28 +667,29 @@ function RadarCard({
             target="_blank"
             rel="noopener noreferrer"
             className="link-btn"
-            aria-label={`Ouvrir ${title}`}
+            aria-label={`Open ${title}`}
           >
             <ArrowUpRight size={18} />
           </a>
         )}
       </div>
-      {ready ? (
+      {ready && headline ? (
         <>
           <div className="radar-numbers">
             <div>
-              <strong>{data.total?.toLocaleString('fr-FR')}</strong>
-              <span>{kind === 'jobs' ? 'offres uniques au total' : 'entreprises hors agences'}</span>
+              <strong>{headline.value === null ? '—' : count(headline.value)}</strong>
+              <span>{headline.label}</span>
+              {headline.total !== null && <span className="radar-total">{count(headline.total)} unique offers in total</span>}
             </div>
             <div className="radar-new">
               <strong>+{data.new24h}</strong>
-              <span>sur 24 h</span>
+              <span>in 24 h</span>
             </div>
           </div>
           <div
             className="radar-stack"
             role="img"
-            aria-label={data.segments.map((m) => `${m.label} : ${m.value}`).join(', ')}
+            aria-label={data.segments.map((m) => `${label(m)}: ${m.value}`).join(', ')}
           >
             {data.segments.map((m, i) =>
               m.value > 0 ? <span key={m.key} className={`segment-${i % 7}`} style={{ flex: m.value }} /> : null,
@@ -664,35 +700,35 @@ function RadarCard({
               <div key={m.key}>
                 <dt>
                   <span className={`legend-dot segment-${i % 7}`} />
-                  {m.label}
+                  {label(m)}
                 </dt>
-                <dd>{m.value.toLocaleString('fr-FR')}</dd>
+                <dd>{count(m.value)}</dd>
               </div>
             ))}
           </dl>
           {data.extra.map((m) => (
             <p className="hint" key={m.key}>
-              {m.label} : {m.value}
+              {label(m)}: {count(m.value)}
             </p>
           ))}
-          <p className="calendar-freshness">Lecture seule · actualisé à {time(data.checkedAt!)}</p>
+          <p className="calendar-freshness">Read only · updated at {time(data.checkedAt!)}</p>
         </>
       ) : (
         <div className="radar-empty">
           <strong>—</strong>
           <p>
             {loading
-              ? 'Lecture des compteurs…'
+              ? 'Reading the counters…'
               : data?.state === 'unconfigured'
-                ? 'Source à connecter'
-                : 'Source indisponible'}
+                ? 'Source not connected'
+                : 'Source unavailable'}
           </p>
           <span className="hint">
             {loading
-              ? 'Les données arrivent.'
+              ? 'The figures are on their way.'
               : data?.state === 'unconfigured'
-                ? 'Les chiffres apparaîtront après configuration de la connexion.'
-                : 'Les compteurs ne sont pas connus. Ils ne sont pas à zéro.'}
+                ? 'The figures will appear once the connection is configured.'
+                : 'The counters are unknown right now. They are not zero.'}
           </span>
         </div>
       )}

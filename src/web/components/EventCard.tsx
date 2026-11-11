@@ -18,7 +18,7 @@ import { useSearchParam } from '../lib/router';
 const deviceZone = deviceTimeZone() ?? 'Europe/Paris';
 
 function dayLabel(date: string): string {
-  return new Date(`${date}T12:00:00Z`).toLocaleDateString('fr-FR', {
+  return new Date(`${date}T12:00:00Z`).toLocaleDateString('en-GB', {
     weekday: 'short',
     day: 'numeric',
     month: 'short',
@@ -27,10 +27,10 @@ function dayLabel(date: string): string {
 }
 const city = (zone: string) => zone.split('/').pop()!.replace(/_/g, ' ');
 
-/** "mar. 17 nov. · 15:00 → 16:00": the weekday is spelled out so a wrong day stands out. */
+/** "Tue 17 Nov · 15:00 → 16:00": the weekday is spelled out so a wrong day stands out. */
 export function describeWhen(d: EventDraft): string {
-  if (!d.start || !d.end) return 'Date à préciser';
-  if (d.allDay) return d.start === d.end ? `${dayLabel(d.start)} · toute la journée` : `${dayLabel(d.start)} → ${dayLabel(d.end)}`;
+  if (!d.start || !d.end) return 'Date to set';
+  if (d.allDay) return d.start === d.end ? `${dayLabel(d.start)} · all day` : `${dayLabel(d.start)} → ${dayLabel(d.end)}`;
   const [sd, st] = d.start.split('T') as [string, string];
   const [ed, et] = d.end.split('T') as [string, string];
   const end = ed === sd ? et : `${dayLabel(ed)} ${et}`;
@@ -123,7 +123,7 @@ function EventCardBody({ captureId, data, event }: { captureId: string; data: Ca
     return (
       <section className="event-card" data-state="created" aria-labelledby="event-card-title">
         <p id="event-card-title" className="event-card-head" role="status">
-          <CalendarCheck size={18} aria-hidden="true" /> Dans ton agenda
+          <CalendarCheck size={18} aria-hidden="true" /> In your calendar
         </p>
         <p className="event-summary">
           <strong>{d.title}</strong>
@@ -132,8 +132,8 @@ function EventCardBody({ captureId, data, event }: { captureId: string; data: Ca
         </p>
         {event.eventUrl && (
           <a className="btn btn-sm" href={event.eventUrl} target="_blank" rel="noopener noreferrer">
-            Ouvrir dans Google Agenda <ArrowUpRight size={16} aria-hidden="true" />
-            <span className="sr-only">(nouvel onglet)</span>
+            Open in Google Calendar <ArrowUpRight size={16} aria-hidden="true" />
+            <span className="sr-only">(new tab)</span>
           </a>
         )}
       </section>
@@ -143,9 +143,9 @@ function EventCardBody({ captureId, data, event }: { captureId: string; data: Ca
   if (event.state === 'dismissed') {
     return (
       <p className="hint event-dismissed">
-        Proposition d’agenda ignorée.{' '}
+        Calendar suggestion dismissed.{' '}
         <button type="button" className="link-btn" disabled={setState.isPending} onClick={() => setState.mutate('proposed')}>
-          Afficher
+          Show
         </button>
       </p>
     );
@@ -173,23 +173,23 @@ function EventCardBody({ captureId, data, event }: { captureId: string; data: Ca
   return (
     <section className="event-card" data-state="proposed" aria-labelledby="event-card-title">
       <p id="event-card-title" className="event-card-head">
-        <CalendarPlus size={18} aria-hidden="true" /> Ajouter à l’agenda
+        <CalendarPlus size={18} aria-hidden="true" /> Add to calendar
       </p>
       {calendarResult === 'connected' && !needsReconnect && (
         <p className="hint event-ok" role="status">
-          Google est reconnecté. Tu peux ajouter l’événement.
+          Google is reconnected. You can add the event.
         </p>
       )}
       {calendarResult === 'failed' && (
         <p className="field-error" role="alert">
-          La connexion Google n’a pas abouti. Tu peux réessayer.
+          The Google connection did not go through. You can try again.
         </p>
       )}
       {event.extraction === 'failed' && (
         <p className="hint">
-          Je n’ai pas pu lire les détails automatiquement. Complète-les ou{' '}
+          The details could not be read automatically. Fill them in, or{' '}
           <button type="button" className="link-btn" disabled={busy} onClick={() => reread.mutate()}>
-            <RefreshCw size={12} aria-hidden="true" /> relance la lecture
+            <RefreshCw size={12} aria-hidden="true" /> read them again
           </button>
           .
         </p>
@@ -203,19 +203,19 @@ function EventCardBody({ captureId, data, event }: { captureId: string; data: Ca
         }}
       >
         <label className="event-field">
-          <span>Titre</span>
+          <span>Title</span>
           <input className="input" value={draft.title} maxLength={200} onChange={(e) => set({ title: e.target.value })} />
         </label>
         <label className="event-check">
-          <input type="checkbox" checked={draft.allDay} onChange={(e) => setAllDay(e.target.checked)} /> Toute la journée
+          <input type="checkbox" checked={draft.allDay} onChange={(e) => setAllDay(e.target.checked)} /> All day
         </label>
         <div className="event-row">
           <label className="event-field">
-            <span>{draft.allDay ? 'Du' : 'Début'}</span>
+            <span>{draft.allDay ? 'From' : 'Start'}</span>
             <input className="input" type={inputType} value={draft.start ?? ''} onChange={(e) => setStart(e.target.value)} />
           </label>
           <label className="event-field">
-            <span>{draft.allDay ? 'Au' : 'Fin'}</span>
+            <span>{draft.allDay ? 'To' : 'End'}</span>
             <input
               className="input"
               type={inputType}
@@ -228,7 +228,7 @@ function EventCardBody({ captureId, data, event }: { captureId: string; data: Ca
         {showZones ? (
           <div className="event-row">
             <label className="event-field">
-              <span>{twoZones ? 'Fuseau du départ' : 'Fuseau'}</span>
+              <span>{twoZones ? 'Start time zone' : 'Time zone'}</span>
               <input
                 className="input"
                 list="event-zones"
@@ -243,7 +243,7 @@ function EventCardBody({ captureId, data, event }: { captureId: string; data: Ca
               />
             </label>
             <label className="event-field">
-              <span>Fuseau de la fin</span>
+              <span>End time zone</span>
               <input className="input" list="event-zones" value={draft.endTimeZone} onChange={(e) => set({ endTimeZone: e.target.value })} />
             </label>
             <datalist id="event-zones">
@@ -255,20 +255,20 @@ function EventCardBody({ captureId, data, event }: { captureId: string; data: Ca
         ) : (
           !draft.allDay && (
             <p className="hint">
-              Heure locale ({draft.startTimeZone}).{' '}
+              Local time ({draft.startTimeZone}).{' '}
               <button type="button" className="link-btn" onClick={() => setEditingZones(true)}>
-                Changer de fuseau
+                Change time zone
               </button>
             </p>
           )
         )}
         <label className="event-field">
-          <span>Lieu</span>
+          <span>Location</span>
           <input
             className="input"
             value={draft.location ?? ''}
             maxLength={300}
-            placeholder="Facultatif"
+            placeholder="Optional"
             onChange={(e) => set({ location: e.target.value || null })}
           />
         </label>
@@ -282,7 +282,7 @@ function EventCardBody({ captureId, data, event }: { captureId: string; data: Ca
           </p>
         )}
         {data.access === 'unconfigured' ? (
-          <p className="hint">La connexion Google n’est pas configurée sur le serveur.</p>
+          <p className="hint">The Google connection is not configured on the server.</p>
         ) : (
           <div className="sheet-actions">
             <button
@@ -291,15 +291,15 @@ function EventCardBody({ captureId, data, event }: { captureId: string; data: Ca
               disabled={busy}
               onClick={() => setState.mutate('dismissed')}
             >
-              Ignorer
+              Dismiss
             </button>
             {needsReconnect ? (
               <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => reconnect.mutate()}>
-                {data.access === 'disconnected' ? 'Connecter Google' : 'Reconnecter Google'}
+                {data.access === 'disconnected' ? 'Connect Google' : 'Reconnect Google'}
               </button>
             ) : (
               <button type="submit" className="btn btn-sm btn-primary" disabled={busy || Boolean(problem)}>
-                {confirm.isPending ? 'Ajout…' : confirm.isError ? 'Réessayer' : 'Ajouter à l’agenda'}
+                {confirm.isPending ? 'Adding…' : confirm.isError ? 'Try again' : 'Add to calendar'}
               </button>
             )}
           </div>

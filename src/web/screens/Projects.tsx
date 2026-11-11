@@ -20,9 +20,9 @@ export function Projects({ onOpen }: { onOpen: (id: string) => void }) {
     <div className="projects-page">
       <header className="today-heading">
         <div>
-          <p className="mono">De l’idée au produit</p>
-          <h1>Mes projets</h1>
-          <p className="lead">Une place pour construire. Une réserve pour imaginer.</p>
+          <p className="mono">From idea to product</p>
+          <h1>My projects</h1>
+          <p className="lead">A place to build. A reserve to imagine.</p>
         </div>
         <button
           type="button"
@@ -33,21 +33,21 @@ export function Projects({ onOpen }: { onOpen: (id: string) => void }) {
           }}
         >
           <Plus size={18} aria-hidden="true" />
-          Nouveau projet
+          New project
         </button>
       </header>
-      {query.isPending && <p role="status">Chargement des projets…</p>}
+      {query.isPending && <p role="status">Loading projects…</p>}
       {query.isError && (
         <p className="field-error" role="alert">
-          Les projets n’ont pas pu être chargés.
+          Projects could not be loaded.
         </p>
       )}
-      {from && source.isPending && <p role="status">Chargement de la capture d’origine…</p>}
+      {from && source.isPending && <p role="status">Loading the original capture…</p>}
       {from && source.isError && (
         <p className="field-error" role="alert">
-          La capture d’origine n’est pas disponible.{' '}
+          The original capture is not available.{' '}
           <button type="button" className="link-btn" onClick={() => navigate('/?view=workspace')}>
-            Revenir aux projets
+            Back to projects
           </button>
         </p>
       )}
@@ -93,12 +93,12 @@ export function Projects({ onOpen }: { onOpen: (id: string) => void }) {
                     </span>
                   )}
                   <small>
-                    {p.captureCount} capture{p.captureCount > 1 ? 's' : ''} liée{p.captureCount > 1 ? 's' : ''}
+                    {p.captureCount} linked capture{p.captureCount === 1 ? '' : 's'}
                   </small>
                 </button>
               ))}
               {!items.length && query.isSuccess && (
-                <p className="hint">{state === 'idea' ? 'Les idées peuvent attendre ici.' : 'Aucun projet.'}</p>
+                <p className="hint">{state === 'idea' ? 'Ideas can wait here.' : 'No projects.'}</p>
               )}
             </section>
           );
@@ -156,13 +156,13 @@ function ProjectEditor({
     onSuccess: refresh,
   });
   return (
-    <section className="project-editor" aria-label={project ? 'Modifier le projet' : 'Créer un projet'}>
+    <section className="project-editor" aria-label={project ? 'Edit the project' : 'Create a project'}>
       <div className="block-head">
         <h2>
           <FolderKanban size={20} aria-hidden="true" />
-          {project ? 'Le projet' : 'Nouveau projet'}
+          {project ? 'Project' : 'New project'}
         </h2>
-        <button className="btn btn-sm" type="button" onClick={onClose} aria-label="Fermer le formulaire">
+        <button className="btn btn-sm" type="button" onClick={onClose} aria-label="Close the form">
           <X size={16} />
         </button>
       </div>
@@ -174,13 +174,13 @@ function ProjectEditor({
       >
         <div className="project-form-grid">
           <label>
-            Nom
+            Name
             <input className="input" required maxLength={120} value={name} onChange={(e) => setName(e.target.value)} />
           </label>
           <label>
-            État
+            State
             <select
-              aria-label="État"
+              aria-label="State"
               className="input"
               value={state}
               onChange={(e) => setState(e.target.value as ProjectState)}
@@ -200,38 +200,38 @@ function ProjectEditor({
             maxLength={2000}
             value={intention}
             onChange={(e) => setIntention(e.target.value)}
-            placeholder="Quel besoin ce projet va-t-il résoudre ?"
+            placeholder="What need will this project meet?"
           />
         </label>
         <label>
-          Prochaine étape <span className="hint">facultative</span>
+          Next step <span className="hint">optional</span>
           <input
             className="input"
             maxLength={500}
             value={nextStep}
             onChange={(e) => setNextStep(e.target.value)}
-            placeholder="Un prochain pas concret, quand tu seras prêt."
+            placeholder="A concrete next step, when you are ready."
           />
         </label>
-        {captureId && <p className="hint">La capture d’origine sera liée à ce projet.</p>}
+        {captureId && <p className="hint">The original capture will be linked to this project.</p>}
         {save.isError && (
           <p className="field-error" role="alert">
-            Non enregistré. {save.error.message}
+            Not saved. {save.error.message}
           </p>
         )}
         <div className="sheet-actions">
           <button type="button" className="btn" onClick={onClose}>
-            Annuler
+            Cancel
           </button>
           <button type="submit" className="btn btn-primary" disabled={save.isPending || !name.trim()}>
-            {save.isPending ? 'Enregistrement…' : 'Enregistrer le projet'}
+            {save.isPending ? 'Saving…' : 'Save project'}
           </button>
         </div>
       </form>
       {project && (
         <div className="project-notes">
-          <h3>Captures liées</h3>
-          {linked.isError && <p className="field-error">Impossible de charger les captures.</p>}
+          <h3>Linked captures</h3>
+          {linked.isError && <p className="field-error">Captures could not be loaded.</p>}
           {linked.data?.map((c) => (
             <div className="project-note" key={c.id}>
               <button type="button" className="link-btn" onClick={() => onOpen(c.id)}>
@@ -243,22 +243,22 @@ function ProjectEditor({
                 disabled={link.isPending}
                 onClick={() => link.mutate({ id: c.id, linked: false })}
               >
-                Détacher
+                Unlink
               </button>
             </div>
           ))}
-          {!linked.data?.length && linked.isSuccess && <p className="hint">Aucune capture liée.</p>}
+          {!linked.data?.length && linked.isSuccess && <p className="hint">No linked captures.</p>}
           <label>
-            Ajouter une capture
+            Add a capture
             <input
               className="input"
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Rechercher dans toutes les captures"
+              placeholder="Search all captures"
             />
           </label>
-          {candidates.isError && <p className="field-error">Recherche indisponible.</p>}
+          {candidates.isError && <p className="field-error">Search unavailable.</p>}
           {candidates.data?.captures
             .filter((c) => !linked.data?.some((l) => l.id === c.id))
             .map((c) => (
@@ -271,13 +271,13 @@ function ProjectEditor({
                   onClick={() => link.mutate({ id: c.id, linked: true })}
                 >
                   <Plus size={14} aria-hidden="true" />
-                  Lier
+                  Link
                 </button>
               </div>
             ))}
           {link.isError && (
             <p className="field-error" role="alert">
-              Lien non modifié. {link.error.message}
+              Link not changed. {link.error.message}
             </p>
           )}
         </div>

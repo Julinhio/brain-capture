@@ -166,13 +166,13 @@ describe('time zones and the end-time rule', () => {
   it('rejects drafts Google would refuse or misplace', () => {
     const ok: EventDraft = { title: 'A', allDay: false, start: '2026-11-17T15:00', end: '2026-11-17T16:00', startTimeZone: PARIS, endTimeZone: PARIS, location: null };
     expect(draftProblem(ok)).toBeNull();
-    expect(draftProblem({ ...ok, title: ' ' })).toMatch(/titre/);
+    expect(draftProblem({ ...ok, title: ' ' })).toMatch(/title/);
     expect(draftProblem({ ...ok, start: null })).toMatch(/date/);
-    expect(draftProblem({ ...ok, end: '2026-11-17T14:00' })).toMatch(/après le début/);
+    expect(draftProblem({ ...ok, end: '2026-11-17T14:00' })).toMatch(/after the start/);
     // 10:00 in Lisbon is 11:00 in Paris: before an 11:30 Paris start, so invalid.
-    expect(draftProblem({ ...ok, start: '2026-11-17T11:30', end: '2026-11-17T10:00', endTimeZone: 'Europe/Lisbon' })).toMatch(/après le début/);
-    expect(draftProblem({ ...ok, startTimeZone: 'Nowhere/Here', endTimeZone: 'Nowhere/Here' })).toMatch(/Fuseau/);
-    expect(draftProblem({ ...ok, start: '2026-02-30T10:00' })).toMatch(/invalide/);
+    expect(draftProblem({ ...ok, start: '2026-11-17T11:30', end: '2026-11-17T10:00', endTimeZone: 'Europe/Lisbon' })).toMatch(/after the start/);
+    expect(draftProblem({ ...ok, startTimeZone: 'Nowhere/Here', endTimeZone: 'Nowhere/Here' })).toMatch(/time zone/);
+    expect(draftProblem({ ...ok, start: '2026-02-30T10:00' })).toMatch(/Invalid/);
   });
 });
 
@@ -192,7 +192,7 @@ describe('editing the card', () => {
     const typing = { ...base, startTimeZone: 'Europe/Pari', endTimeZone: 'Europe/Pari' };
     const moved = withStart(typing, '2026-11-18T09:30');
     expect(moved).toMatchObject({ start: '2026-11-18T09:30', end: '2026-11-17T16:00' });
-    expect(draftProblem(moved)).toMatch(/Fuseau/);
+    expect(draftProblem(moved)).toMatch(/time zone/);
     expect(withStart({ ...typing, end: null }, '2026-11-18T09:30').end).toBeNull();
     expect(withAllDay({ ...typing, allDay: true, start: '2026-11-17', end: '2026-11-17' }, false)).toMatchObject({ end: null });
   });
@@ -480,7 +480,7 @@ describe('capture to calendar event, end to end', () => {
     const { draft } = (await eventOf(c.id)).event;
     const res = await confirm(c.id, draft);
     expect(res.statusCode).toBe(403);
-    expect(res.json()).toMatchObject({ error: 'calendar_reconnect', message: expect.stringContaining('Reconnecte') });
+    expect(res.json()).toMatchObject({ error: 'calendar_reconnect', message: expect.stringContaining('Reconnect') });
     expect(google.events.size).toBe(0);
 
     // Reconnect from the capture: Google's consent screen brings the browser back to it.

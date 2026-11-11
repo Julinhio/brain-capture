@@ -117,21 +117,21 @@ export function defaultEnd(start: string, timeZone: string): string {
 
 /** Null when the draft can be sent to Google; otherwise a sentence for the card. */
 export function draftProblem(d: EventDraft): string | null {
-  if (!d.title.trim()) return 'Donne un titre à l’événement.';
-  if (d.title.trim().length > MAX_EVENT_TITLE) return 'Le titre est trop long.';
-  if (d.location && d.location.length > MAX_EVENT_LOCATION) return 'Le lieu est trop long.';
-  if (!d.start) return 'Choisis la date de l’événement.';
-  if (!d.end) return 'Choisis la fin de l’événement.';
+  if (!d.title.trim()) return 'Give the event a title.';
+  if (d.title.trim().length > MAX_EVENT_TITLE) return 'The title is too long.';
+  if (d.location && d.location.length > MAX_EVENT_LOCATION) return 'The location is too long.';
+  if (!d.start) return 'Choose the date of the event.';
+  if (!d.end) return 'Choose when the event ends.';
   if (d.allDay) {
-    if (!isRealDate(d.start) || !isRealDate(d.end)) return 'Date invalide.';
-    if (d.end < d.start) return 'La fin est avant le début.';
-    if (Date.parse(d.end) - Date.parse(d.start) > MAX_SPAN_DAYS * 86_400_000) return 'L’événement dépasse un mois.';
+    if (!isRealDate(d.start) || !isRealDate(d.end)) return 'Invalid date.';
+    if (d.end < d.start) return 'The end is before the start.';
+    if (Date.parse(d.end) - Date.parse(d.start) > MAX_SPAN_DAYS * 86_400_000) return 'The event is longer than a month.';
     return null;
   }
-  if (!isRealDateTime(d.start) || !isRealDateTime(d.end)) return 'Date ou heure invalide.';
-  if (!isValidTimeZone(d.startTimeZone) || !isValidTimeZone(d.endTimeZone)) return 'Fuseau horaire inconnu.';
+  if (!isRealDateTime(d.start) || !isRealDateTime(d.end)) return 'Invalid date or time.';
+  if (!isValidTimeZone(d.startTimeZone) || !isValidTimeZone(d.endTimeZone)) return 'Unknown time zone.';
   const span = zonedToUtc(d.end, d.endTimeZone).getTime() - zonedToUtc(d.start, d.startTimeZone).getTime();
-  if (span <= 0) return 'La fin doit être après le début.';
-  if (span > MAX_SPAN_DAYS * 86_400_000) return 'L’événement dépasse un mois.';
+  if (span <= 0) return 'The end must be after the start.';
+  if (span > MAX_SPAN_DAYS * 86_400_000) return 'The event is longer than a month.';
   return null;
 }

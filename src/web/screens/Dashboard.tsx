@@ -53,9 +53,9 @@ export function Dashboard() {
           Brain Capture
         </button>
         <nav aria-label="Sections">
-          <SideLink active={view.kind === 'today' && !q} onClick={() => navigate('/?view=today')} label="Aujourd’hui" />
+          <SideLink active={view.kind === 'today' && !q} onClick={() => navigate('/?view=today')} label="Today" />
           <button type="button" className="side-link mobile-capture-link" onClick={() => navigate('/capture')}>Capturer</button>
-          <SideLink active={view.kind === 'projects' && !q} onClick={() => navigate('/?view=workspace')} label="Mes projets" />
+          <SideLink active={view.kind === 'projects' && !q} onClick={() => navigate('/?view=workspace')} label="My projects" />
           <SideLink active={view.kind === 'home' && !q} onClick={() => navigate('/?view=everything')} label="Everything" count={overview.data ? sum(overview.data.counts) : undefined} />
           <p className="mono side-title">Categories</p>
           {CATEGORIES.map((c) => (
@@ -123,7 +123,7 @@ function sum(counts: Record<Category, number>): number {
 function SideLink({ label, count, active, onClick, cat }: { label: string; count?: number; active: boolean; onClick: () => void; cat?: Category }) {
   return (
     <button type="button" className="side-link" aria-current={active ? 'page' : undefined} onClick={onClick} data-cat={cat}>
-      {cat ? <CategoryIcon category={cat} /> : label === 'Aujourd’hui' ? <CalendarDays size={18} aria-hidden="true" /> : label === 'Mes projets' ? <FolderKanban size={18} aria-hidden="true" /> : label === 'Everything' ? <LayoutGrid size={18} strokeWidth={1.7} aria-hidden="true" /> : label === 'Done' ? <CheckCheck size={18} strokeWidth={1.7} aria-hidden="true" /> : <Archive size={18} strokeWidth={1.7} aria-hidden="true" />}
+      {cat ? <CategoryIcon category={cat} /> : label === 'Today' ? <CalendarDays size={18} aria-hidden="true" /> : label === 'My projects' ? <FolderKanban size={18} aria-hidden="true" /> : label === 'Everything' ? <LayoutGrid size={18} strokeWidth={1.7} aria-hidden="true" /> : label === 'Done' ? <CheckCheck size={18} strokeWidth={1.7} aria-hidden="true" /> : <Archive size={18} strokeWidth={1.7} aria-hidden="true" />}
       <span className="grow">{label}</span>
       {count !== undefined && <span className="mono side-count">{count}</span>}
     </button>

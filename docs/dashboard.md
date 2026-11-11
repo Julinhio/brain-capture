@@ -1,12 +1,12 @@
-# Aujourd’hui, dashboard personnel
+# Today, dashboard personnel
 
 ## Comportement
 
-Sur ordinateur, `/` ouvre Aujourd’hui. Everything est conservé sous `/?view=everything`,
+L’interface est en anglais : Today, My projects, My day, Everything. Sur ordinateur, `/` ouvre Today. Everything est conservé sous `/?view=everything`,
 avec catégories, recherche, statuts, capture rapide et tiroir inchangés. Les liens de
 catégorie `/?view=projects` restent des captures de la catégorie Projects ; la gestion
 de projets utilise `/?view=workspace`. Sur téléphone, la capture reste l’accueil et un
-bouton calendrier ouvre Aujourd’hui. Les projets sont également accessibles sur mobile.
+bouton calendrier ouvre Today. Les projets sont également accessibles sur mobile.
 
 Le briefing est une synthèse déterministe des données disponibles, sans appel LLM,
 sans priorité inventée et sans coût IA supplémentaire. Les notes de la veille suivent
@@ -29,7 +29,7 @@ l’ancien scope `calendar.events.readonly` continuent d’alimenter le dashboar
 Variables serveur à définir ensemble : GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
 GOOGLE_REDIRECT_URI, CALENDAR_ENCRYPTION_KEY (32 octets aléatoires en hexadécimal).
 Tous les calendriers possédés et non masqués sont inclus par défaut. Les autres
-calendriers accessibles restent désactivés. La sélection se corrige dans Ma journée,
+calendriers accessibles restent désactivés. La sélection se corrige dans My day,
 se conserve avec la connexion et peut revenir au mode automatique avec « Tous mes
 calendriers ». Une sélection vide reste vide. L’ancien GOOGLE_CALENDAR_ID est ignoré.
 L’écriture se limite aux événements confirmés depuis une capture, dans le calendrier principal.
@@ -78,6 +78,11 @@ de dix secondes et échec indépendant par source. Un schéma et l’égalité s
 segments = total sont vérifiés avant affichage. Le total emploi exclut les doublons.
 Le total Automata compte les entreprises analysées hors agences d’intérim, comme les
 filtres du radar. Les compteurs suivent les états actuels, pas un entonnoir historique.
+
+La carte Job Radar met en avant les offres « À voir » du radar (To review), le total
+unique passe en dessous. Les compteurs sont nommés en anglais par Brain Capture à partir
+de leurs clés stables (`a_voir`, `a_tenter`…) ; une clé inconnue garde le libellé de la source.
+Le radar emploi calcule ses segments avec la même partition que ses onglets.
 
 Non connecté, indisponible et zéro réel sont trois états distincts. Une source en panne
 ne bloque ni l’autre source ni la capture.

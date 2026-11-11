@@ -229,3 +229,18 @@ describe('calendar security and event reading', () => {
     ).toBe(false);
   });
 });
+
+describe('radar card headline', () => {
+  it('leads with the offers to review for jobs, and keeps the total alongside', async () => {
+    const { radarHeadline } = await import('../src/web/screens/Today.js');
+    const segments = [
+      { key: 'a_voir', label: 'À voir', value: 12 },
+      { key: 'a_tenter', label: 'À tenter', value: 91 },
+    ];
+    expect(radarHeadline('jobs', { total: 2846, segments })).toEqual({ value: 12, label: 'offers to review', total: 2846 });
+    expect(radarHeadline('jobs', { total: 5, segments: [{ key: 'a_voir', label: 'À voir', value: 1 }] }).label).toBe('offer to review');
+    // A radar that does not report "À voir" yet: fall back to the total rather than a wrong figure.
+    expect(radarHeadline('jobs', { total: 2846, segments: [] })).toMatchObject({ value: 2846, total: null });
+    expect(radarHeadline('automata', { total: 40, segments })).toMatchObject({ value: 40, label: 'companies (agencies excluded)' });
+  });
+});

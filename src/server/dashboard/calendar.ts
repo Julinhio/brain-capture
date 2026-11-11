@@ -133,7 +133,7 @@ export async function calendarEvents(
       if (!start || !end) continue;
       events.push({
         id: e.id,
-        title: e.summary || 'Événement sans titre',
+        title: e.summary || 'Untitled event',
         start,
         end,
         allDay: !e.start.dateTime,
@@ -187,7 +187,7 @@ export async function listCalendars(client: OAuth2Client, deadline = Date.now() 
       if (c.deleted || !['owner', 'writer', 'writerWithoutPrivateAccess', 'reader'].includes(c.accessRole)) continue;
       calendars.set(c.id, {
         id: c.id,
-        name: c.summaryOverride || c.summary || 'Calendrier sans nom',
+        name: c.summaryOverride || c.summary || 'Untitled calendar',
         color: /^#[a-f0-9]{6}$/i.test(c.backgroundColor ?? '') ? c.backgroundColor! : '#ffad52',
         owned: c.accessRole === 'owner',
         hidden: c.hidden ?? false,
@@ -267,7 +267,7 @@ export function registerCalendarRoutes(app: FastifyInstance, { db, config }: App
   // State contains PKCE verifier + signed-in owner. Encrypted cookie has a short lifetime
   // and callback requires the same authenticated session, closing login-CSRF.
   app.post('/api/calendar/connect', async (req, reply) => {
-    if (!settings) return sendError(reply, 503, 'internal', 'La connexion Google n’est pas encore configurée.');
+    if (!settings) return sendError(reply, 503, 'internal', 'The Google connection is not configured yet.');
     const returnTo = safeReturnPath((req.body as { returnTo?: unknown } | undefined)?.returnTo);
     const client = oauth();
     const state = randomBytes(32).toString('base64url');
@@ -366,15 +366,15 @@ export function registerCalendarRoutes(app: FastifyInstance, { db, config }: App
       .object({ calendarIds: z.array(z.string().min(1).max(2000)).max(100).nullable() })
       .strict()
       .safeParse(req.body);
-    if (!body.success) return sendError(reply, 400, 'invalid_input', 'Sélection de calendriers invalide.');
+    if (!body.success) return sendError(reply, 400, 'invalid_input', 'Invalid calendar selection.');
     const [connection] = await db
       .select()
       .from(calendarConnections)
       .where(eq(calendarConnections.ownerId, req.user!.id));
     if (!settings || !connection)
-      return sendError(reply, 400, 'invalid_input', 'Connecte Google Calendar avant de choisir tes calendriers.');
+      return sendError(reply, 400, 'invalid_input', 'Connect Google Calendar before choosing your calendars.');
     if (!canReadCalendars(connection.grantedScopes))
-      return sendError(reply, 400, 'invalid_input', 'Reconnecte Google pour autoriser la liste des calendriers.');
+      return sendError(reply, 400, 'invalid_input', 'Reconnect Google to allow reading your calendar list.');
     try {
       const client = calendarClient(settings, connection);
       const available = await listCalendars(client);
@@ -383,7 +383,7 @@ export function registerCalendarRoutes(app: FastifyInstance, { db, config }: App
           reply,
           400,
           'invalid_input',
-          'Un calendrier choisi n’est plus accessible. Actualise la liste.',
+          'A chosen calendar is no longer accessible. Refresh the list.',
         );
       await db
         .update(calendarConnections)
@@ -394,7 +394,7 @@ export function registerCalendarRoutes(app: FastifyInstance, { db, config }: App
         .where(eq(calendarConnections.ownerId, req.user!.id));
       return { ok: true };
     } catch {
-      return sendError(reply, 503, 'internal', 'La sélection n’a pas été enregistrée. Réessaie dans un instant.');
+      return sendError(reply, 503, 'internal', 'The selection was not saved. Try again in a moment.');
     }
   });
   app.get('/api/calendar/day', async (req, reply): Promise<CalendarDay | unknown> => {
@@ -410,7 +410,7 @@ export function registerCalendarRoutes(app: FastifyInstance, { db, config }: App
           .parse((req.query as { timeZone?: string }).timeZone ?? 'Europe/Paris'),
       );
     } catch {
-      return sendError(reply, 400, 'invalid_input', 'Fuseau horaire invalide.');
+      return sendError(reply, 400, 'invalid_input', 'Invalid time zone.');
     }
     const [connection] = await db
       .select()
