@@ -52,10 +52,12 @@ La transcription d’origine (`originalText`) va dans la description de l’év�
 - En base, `capture_events` a l’id de la capture comme clé primaire.
 - Chez Google, l’id de l’événement est dérivé de celui de la capture (`bc` + l’uuid en
   hexadécimal). Une deuxième création avec le même id reçoit un 409 de Google : le serveur
-  relit alors l’événement existant au lieu d’en créer un autre. Cela couvre le double tap,
-  la relance après une réponse perdue et le crash entre la réponse de Google et l’écriture
-  en base. Si l’événement a été supprimé dans Google entre-temps, c’est ce même événement
-  qui est restauré.
+  met alors à jour cet événement avec la version confirmée (corrigée entre-temps ou non)
+  au lieu d’en créer un autre. Cela couvre le double tap, la relance après une réponse
+  perdue et le crash entre la réponse de Google et l’écriture en base. Un événement
+  supprimé dans Google entre-temps est restauré, jamais dupliqué.
+- Les corrections faites dans la carte sont enregistrées avant de partir vers l’écran de
+  consentement Google, et retrouvées au retour.
 - Une fois l’événement créé, un nouvel appui ne contacte plus Google.
 
 ## Erreurs

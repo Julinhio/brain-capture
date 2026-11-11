@@ -79,6 +79,8 @@ export const api = {
     request<CaptureEventResponse>('POST', `/api/captures/${captureId}/event`, { draft }),
   setEventState: (captureId: string, state: 'proposed' | 'dismissed') =>
     request<CaptureEventResponse>('PATCH', `/api/captures/${captureId}/event`, { state }),
+  saveEventDraft: (captureId: string, draft: EventDraft) =>
+    request<CaptureEventResponse>('PATCH', `/api/captures/${captureId}/event`, { draft }),
   rereadEvent: (captureId: string) => request<CaptureEventResponse>('POST', `/api/captures/${captureId}/event/extract`),
   disconnectCalendar: () => request<{ ok: true }>('DELETE', '/api/calendar/connection'),
   selectCalendars: (calendarIds: string[] | null) => request<{ ok: true }>('PATCH', '/api/calendar/selection', { calendarIds }),

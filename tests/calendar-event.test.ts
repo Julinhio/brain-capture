@@ -181,29 +181,20 @@ describe('Google side, at most once', () => {
     expect(googleEventId('7f9c2a4e-1d3b-4c5a-9e8f-0a1b2c3d4e5f')).toMatch(/^[0-9a-v]{5,1024}$/);
   });
 
-  it('returns the event already there when Google says the id exists', async () => {
+  it('updates the event already there when Google says the id exists, never creates a second one', async () => {
     const request = vi
       .fn()
       .mockRejectedValueOnce(gaxios(409))
       .mockResolvedValueOnce({ data: { id: 'bc1', status: 'confirmed', htmlLink: 'https://www.google.com/calendar/event?eid=1' } });
     const event = await insertGoogleEvent({ request } as never, 'primary', 'bc1', body);
     expect(event.id).toBe('bc1');
-    expect(request.mock.calls.map(([r]) => r.method)).toEqual(['POST', 'GET']);
-    expect(request.mock.calls[0]![0].data).toMatchObject({ id: 'bc1', description: 'Mets dans mon agenda dentiste mardi prochain à 15 h' });
-  });
-
-  it('restores the same event if it was deleted in Google before the retry, never a second one', async () => {
-    const request = vi
-      .fn()
-      .mockRejectedValueOnce(gaxios(409))
-      .mockResolvedValueOnce({ data: { id: 'bc1', status: 'cancelled' } })
-      .mockResolvedValueOnce({ data: { id: 'bc1', status: 'confirmed' } });
-    await insertGoogleEvent({ request } as never, 'primary', 'bc1', body);
     expect(request.mock.calls.map(([r]) => [r.method, r.url.endsWith('/events/bc1')])).toEqual([
       ['POST', false],
-      ['GET', true],
       ['PUT', true],
     ]);
+    expect(request.mock.calls[0]![0].data).toMatchObject({ id: 'bc1', description: 'Mets dans mon agenda dentiste mardi prochain à 15 h' });
+    // The update carries the draft being confirmed now, and brings back an event deleted meanwhile.
+    expect(request.mock.calls[1]![0].data).toMatchObject({ ...body, id: 'bc1', status: 'confirmed' });
   });
 
   it('turns Google refusals into actionable messages', () => {
@@ -256,7 +247,12 @@ function fakeGoogle() {
       }
       return { data: events.get(id) };
     }
-    if (method === 'GET' && /\/events\/[^/]+$/.test(url)) return { data: events.get(url.split('/').pop()!) };
+    if (method === 'PUT' && /\/events\/[^/]+$/.test(url)) {
+      const id = url.split('/').pop()!;
+      if (!events.has(id)) throw Object.assign(new Error('not found'), { response: { status: 404, data: {} } });
+      events.set(id, { ...events.get(id), ...data });
+      return { data: events.get(id) };
+    }
     if (url.includes('/events')) return { data: { items: [] } };
     throw new Error(`unexpected ${method} ${url}`);
   });
@@ -399,8 +395,9 @@ describe('capture to calendar event, end to end', () => {
     expect(lost.json()).toMatchObject({ error: 'calendar_unavailable' });
     expect(google.events.size).toBe(1);
 
-    // Double tap on "Réessayer": two requests at once.
-    const [a, b] = await Promise.all([confirm(c.id, edited), confirm(c.id, edited)]);
+    // Corrected after the failure, then a double tap on "Réessayer": two requests at once.
+    const corrected = { ...edited, start: '2026-11-17T15:30', end: '2026-11-17T16:30' };
+    const [a, b] = await Promise.all([confirm(c.id, corrected), confirm(c.id, corrected)]);
     expect([a.statusCode, b.statusCode]).toEqual([200, 200]);
     expect(google.events.size).toBe(1);
     const created = a.json().event;
@@ -409,7 +406,7 @@ describe('capture to calendar event, end to end', () => {
 
     // Once created, a further tap does not even reach Google.
     const calls = google.request.mock.calls.length;
-    expect((await confirm(c.id, edited)).json().event.state).toBe('created');
+    expect((await confirm(c.id, corrected)).json().event.state).toBe('created');
     expect(google.request.mock.calls.length).toBe(calls);
 
     const [stored] = [...google.events.values()];
@@ -418,8 +415,9 @@ describe('capture to calendar event, end to end', () => {
       summary: 'Dentiste',
       location: 'Cabinet du Dr Martin',
       description: DENTIST,
-      start: { dateTime: '2026-11-17T15:00:00', timeZone: PARIS },
-      end: { dateTime: '2026-11-17T16:00:00', timeZone: PARIS },
+      // The event Google kept from the lost attempt now matches the corrected card.
+      start: { dateTime: '2026-11-17T15:30:00', timeZone: PARIS },
+      end: { dateTime: '2026-11-17T16:30:00', timeZone: PARIS },
     });
     const [row] = await ctx.db.select().from(captureEvents).where(eq(captureEvents.captureId, c.id));
     expect(row).toMatchObject({ state: 'created', calendarId: 'primary', googleEventId: googleEventId(c.id) });
@@ -476,6 +474,20 @@ describe('capture to calendar event, end to end', () => {
       payload: { state: 'dismissed' },
     });
     expect(dismissed.json().event.state).toBe('dismissed');
+  });
+
+  it('keeps unsent edits, e.g. before leaving for the Google consent screen', async () => {
+    const c = await capture(DENTIST);
+    const { draft } = (await eventOf(c.id)).event;
+    const kept = await ctx.app.inject({
+      method: 'PATCH',
+      url: `/api/captures/${c.id}/event`,
+      headers: { cookie },
+      // Incomplete is fine here: only confirming requires a valid event.
+      payload: { draft: { ...draft, title: '  Dentiste Dr Martin ', start: null, end: null } },
+    });
+    expect(kept.statusCode).toBe(200);
+    expect((await eventOf(c.id)).event).toMatchObject({ state: 'proposed', draft: { title: 'Dentiste Dr Martin', start: null } });
   });
 
   it('keeps proposals private to their owner', async () => {

@@ -80,7 +80,11 @@ function EventCardBody({ captureId, data, event }: { captureId: string; data: Ca
   const setState = useMutation({ mutationFn: (s: 'proposed' | 'dismissed') => api.setEventState(captureId, s), onSuccess: update });
   const reread = useMutation({ mutationFn: () => api.rereadEvent(captureId), onSuccess: update });
   const reconnect = useMutation({
-    mutationFn: () => api.connectCalendar(returnPath(captureId)),
+    // The edits made so far must survive the trip through Google's consent screen.
+    mutationFn: async () => {
+      await api.saveEventDraft(captureId, draft);
+      return api.connectCalendar(returnPath(captureId));
+    },
     onSuccess: ({ url }) => window.location.assign(url),
   });
 

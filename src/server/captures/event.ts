@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import type { OAuth2Client } from 'google-auth-library';
 import { z } from 'zod';
@@ -153,7 +153,12 @@ function httpStatus(err: unknown): number | undefined {
   return typeof status === 'number' ? status : undefined;
 }
 
-/** Creates the event once. Any repeat with the same id returns the event already there. */
+/**
+ * Creates the event once. A repeat with the same id gets a 409: the event already exists
+ * because an earlier attempt never received its answer. It is then brought in line with the
+ * draft being confirmed now (Julien may have corrected it before retrying), and restored if
+ * it was deleted in Google meanwhile. Still one event, showing what the card shows.
+ */
 export async function insertGoogleEvent(
   client: Pick<OAuth2Client, 'request'>,
   calendarId: string,
@@ -168,20 +173,14 @@ export async function insertGoogleEvent(
     if (httpStatus(err) !== 409) throw err;
   }
   const url = `${base}/${encodeURIComponent(eventId)}`;
-  const existing = createdEvent.parse(
-    (await client.request({ url, method: 'GET', timeout: GOOGLE_TIMEOUT_MS, retry: false })).data,
-  );
-  if (existing.status !== 'cancelled') return existing;
-  // Created by an earlier attempt that never got its answer, then deleted in Google before
-  // this retry: bring that same event back rather than leaving the capture without one.
-  const restored = await client.request({
+  const updated = await client.request({
     url,
     method: 'PUT',
     data: { ...body, id: eventId, status: 'confirmed' },
     timeout: GOOGLE_TIMEOUT_MS,
     retry: false,
   });
-  return createdEvent.parse(restored.data);
+  return createdEvent.parse(updated.data);
 }
 
 export interface EventFailure {
@@ -327,6 +326,10 @@ const draftSchema = z
   })
   .strict();
 
+function cleanDraft(draft: z.infer<typeof draftSchema>): EventDraft {
+  return { ...draft, title: draft.title.trim(), location: draft.location?.trim() || null };
+}
+
 export function registerCaptureEventRoutes(app: FastifyInstance, { db, ai, config }: AppDeps): void {
   const ownedEvent = async (ownerId: string, captureId: string) => {
     const [row] = await db
@@ -351,34 +354,34 @@ export function registerCaptureEventRoutes(app: FastifyInstance, { db, ai, confi
     if (!params.success) return sendError(reply, 404, 'not_found', 'Capture not found.');
     const body = z.object({ draft: draftSchema }).strict().safeParse(req.body);
     if (!body.success) return sendError(reply, 400, 'invalid_input', 'Événement invalide.');
-    const draft: EventDraft = {
-      ...body.data.draft,
-      title: body.data.draft.title.trim(),
-      location: body.data.draft.location?.trim() || null,
-    };
-    const result = await confirmEvent(db, config, req.user!.id, params.data.id, draft, req.log);
+    const result = await confirmEvent(db, config, req.user!.id, params.data.id, cleanDraft(body.data.draft), req.log);
     if (!result.ok) return sendError(reply, result.status, result.code, result.message);
     return respond(req.user!.id, result.row);
   });
 
-  // Dismiss or bring back a proposal. A created event cannot be dismissed from here.
+  // Dismiss or bring back a proposal, or keep unsent edits (before leaving for Google's
+  // consent screen). A created event is left alone: Google holds the truth from then on.
   app.patch('/api/captures/:id/event', async (req, reply) => {
     const params = idParams.safeParse(req.params);
     if (!params.success) return sendError(reply, 404, 'not_found', 'Capture not found.');
-    const body = z.object({ state: z.enum(['proposed', 'dismissed']) }).strict().safeParse(req.body);
+    const body = z
+      .object({ state: z.enum(['proposed', 'dismissed']).optional(), draft: draftSchema.optional() })
+      .strict()
+      .refine((b) => b.state || b.draft)
+      .safeParse(req.body);
     if (!body.success) return sendError(reply, 400, 'invalid_input', 'Changement invalide.');
-    const [row] = await db
-      .update(captureEvents)
-      .set({ state: body.data.state, updatedAt: new Date() })
-      .where(
-        and(
-          eq(captureEvents.captureId, params.data.id),
-          eq(captureEvents.ownerId, req.user!.id),
-          eq(captureEvents.state, body.data.state === 'dismissed' ? 'proposed' : 'dismissed'),
-        ),
-      )
-      .returning();
-    return respond(req.user!.id, row ?? (await ownedEvent(req.user!.id, params.data.id)));
+    const owned = and(eq(captureEvents.captureId, params.data.id), eq(captureEvents.ownerId, req.user!.id));
+    if (body.data.draft)
+      await db
+        .update(captureEvents)
+        .set({ draft: cleanDraft(body.data.draft), updatedAt: new Date() })
+        .where(and(owned, ne(captureEvents.state, 'created')));
+    if (body.data.state)
+      await db
+        .update(captureEvents)
+        .set({ state: body.data.state, updatedAt: new Date() })
+        .where(and(owned, eq(captureEvents.state, body.data.state === 'dismissed' ? 'proposed' : 'dismissed')));
+    return respond(req.user!.id, await ownedEvent(req.user!.id, params.data.id));
   });
 
   // Asks the model again (after it was unreachable, or to start over from the original words).
