@@ -2,8 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowUpRight, CalendarCheck, CalendarPlus, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import {
+  DATE_TIME_RE,
   defaultEnd,
   draftProblem,
+  isValidTimeZone,
   wallClock,
   zonedToUtc,
   type CaptureEvent,
@@ -35,6 +37,34 @@ export function describeWhen(d: EventDraft): string {
   // Flights: each end in its own city. Otherwise the zone shows only when it is not the phone's.
   if (d.startTimeZone !== d.endTimeZone) return `${dayLabel(sd)} · ${st} (${city(d.startTimeZone)}) → ${end} (${city(d.endTimeZone)})`;
   return `${dayLabel(sd)} · ${st} → ${end}${d.startTimeZone === deviceZone ? '' : ` (${city(d.startTimeZone)})`}`;
+}
+
+// Zones are typed by hand: a half-typed one ("Europe/Pari") must leave the form usable,
+// with the validation message, rather than throw inside a state update.
+const zonesOk = (d: EventDraft) => isValidTimeZone(d.startTimeZone) && isValidTimeZone(d.endTimeZone);
+const timed = (value: string | null): value is string => Boolean(value && DATE_TIME_RE.test(value));
+const endAfter = (start: string, zone: string) => (isValidTimeZone(zone) ? defaultEnd(start, zone) : null);
+
+/** New start from the form. Moving the start keeps the duration when both ends share a zone. */
+export function withStart(d: EventDraft, start: string): EventDraft {
+  if (!start) return { ...d, start: null };
+  if (d.allDay) return { ...d, start, end: !d.end || d.end < start ? start : d.end };
+  if (!timed(start)) return { ...d, start };
+  if (timed(d.start) && timed(d.end) && d.startTimeZone === d.endTimeZone && zonesOk(d)) {
+    const duration = zonedToUtc(d.end, d.endTimeZone).getTime() - zonedToUtc(d.start, d.startTimeZone).getTime();
+    if (duration > 0)
+      return { ...d, start, end: wallClock(new Date(zonedToUtc(start, d.startTimeZone).getTime() + duration), d.endTimeZone) };
+  }
+  return { ...d, start, end: d.end ?? endAfter(start, d.startTimeZone) };
+}
+
+export function withAllDay(d: EventDraft, allDay: boolean): EventDraft {
+  if (allDay) {
+    const start = d.start?.slice(0, 10) ?? null;
+    return { ...d, allDay, start, end: start ? (d.end?.slice(0, 10) ?? start) : null, endTimeZone: d.startTimeZone };
+  }
+  const start = d.start ? `${d.start.slice(0, 10)}T09:00` : null;
+  return { ...d, allDay, start, end: start ? endAfter(start, d.startTimeZone) : null, endTimeZone: d.startTimeZone };
 }
 
 /** Path the Google consent screen returns to: this capture, on any screen. */
@@ -133,27 +163,8 @@ function EventCardBody({ captureId, data, event }: { captureId: string; data: Ca
   const busy = confirm.isPending || setState.isPending || reread.isPending || reconnect.isPending;
 
   const set = (patch: Partial<EventDraft>) => setDraft((d) => ({ ...d, ...patch }));
-  const setStart = (start: string) =>
-    setDraft((d) => {
-      if (!start) return { ...d, start: null };
-      if (d.allDay) return { ...d, start, end: !d.end || d.end < start ? start : d.end };
-      // Moving the start keeps the duration when both ends share a zone (the usual case).
-      if (d.start && d.end && d.startTimeZone === d.endTimeZone) {
-        const duration = zonedToUtc(d.end, d.endTimeZone).getTime() - zonedToUtc(d.start, d.startTimeZone).getTime();
-        if (duration > 0)
-          return { ...d, start, end: wallClock(new Date(zonedToUtc(start, d.startTimeZone).getTime() + duration), d.endTimeZone) };
-      }
-      return { ...d, start, end: d.end ?? defaultEnd(start, d.startTimeZone) };
-    });
-  const setAllDay = (allDay: boolean) =>
-    setDraft((d) => {
-      if (allDay) {
-        const start = d.start?.slice(0, 10) ?? null;
-        return { ...d, allDay, start, end: start ? (d.end?.slice(0, 10) ?? start) : null, endTimeZone: d.startTimeZone };
-      }
-      const start = d.start ? `${d.start.slice(0, 10)}T09:00` : null;
-      return { ...d, allDay, start, end: start ? defaultEnd(start, d.startTimeZone) : null, endTimeZone: d.startTimeZone };
-    });
+  const setStart = (start: string) => setDraft((d) => withStart(d, start));
+  const setAllDay = (allDay: boolean) => setDraft((d) => withAllDay(d, allDay));
 
   const twoZones = draft.startTimeZone !== draft.endTimeZone;
   const showZones = !draft.allDay && (editingZones || twoZones || draft.startTimeZone !== deviceZone);

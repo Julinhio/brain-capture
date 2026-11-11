@@ -18,6 +18,7 @@ import {
 import { CALENDAR_SCOPES, canReadCalendars, safeReturnPath, seal } from '../src/server/dashboard/calendar.js';
 import { calendarConnections, captureEvents } from '../src/server/db/schema.js';
 import { draftProblem, zonedToUtc, type EventDraft } from '../src/shared/event.js';
+import { withAllDay, withStart } from '../src/web/components/EventCard.js';
 import { createUser, login, newClientId, setup, voicePayload, type TestContext } from './helpers.js';
 
 const PARIS = 'Europe/Paris';
@@ -165,6 +166,28 @@ describe('time zones and the end-time rule', () => {
     expect(draftProblem({ ...ok, start: '2026-11-17T11:30', end: '2026-11-17T10:00', endTimeZone: 'Europe/Lisbon' })).toMatch(/après le début/);
     expect(draftProblem({ ...ok, startTimeZone: 'Nowhere/Here', endTimeZone: 'Nowhere/Here' })).toMatch(/Fuseau/);
     expect(draftProblem({ ...ok, start: '2026-02-30T10:00' })).toMatch(/invalide/);
+  });
+});
+
+describe('editing the card', () => {
+  const base: EventDraft = { title: 'A', allDay: false, start: '2026-11-17T15:00', end: '2026-11-17T16:00', startTimeZone: PARIS, endTimeZone: PARIS, location: null };
+
+  it('moving the start keeps the duration', () => {
+    expect(withStart(base, '2026-11-18T09:30')).toMatchObject({ start: '2026-11-18T09:30', end: '2026-11-18T10:30' });
+    expect(withAllDay(base, true)).toMatchObject({ allDay: true, start: '2026-11-17', end: '2026-11-17' });
+    expect(withAllDay({ ...base, allDay: true, start: '2026-11-17', end: '2026-11-17' }, false)).toMatchObject({
+      start: '2026-11-17T09:00',
+      end: '2026-11-17T10:00',
+    });
+  });
+
+  it('a half-typed time zone never throws: the form stays usable and shows the problem', () => {
+    const typing = { ...base, startTimeZone: 'Europe/Pari', endTimeZone: 'Europe/Pari' };
+    const moved = withStart(typing, '2026-11-18T09:30');
+    expect(moved).toMatchObject({ start: '2026-11-18T09:30', end: '2026-11-17T16:00' });
+    expect(draftProblem(moved)).toMatch(/Fuseau/);
+    expect(withStart({ ...typing, end: null }, '2026-11-18T09:30').end).toBeNull();
+    expect(withAllDay({ ...typing, allDay: true, start: '2026-11-17', end: '2026-11-17' }, false)).toMatchObject({ end: null });
   });
 });
 
