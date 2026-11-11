@@ -19,6 +19,7 @@ import { sendError } from './http.js';
 import { registerProjectRoutes } from './dashboard/projects.js';
 import { registerRadarRoutes } from './dashboard/radars.js';
 import { registerCalendarRoutes } from './dashboard/calendar.js';
+import { registerPublicPages } from './public-pages.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -132,6 +133,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerProjectRoutes(app, deps);
   registerRadarRoutes(app, deps);
   registerCalendarRoutes(app, deps);
+  registerPublicPages(app);
 
   app.setErrorHandler((err: Error & { statusCode?: number; validation?: unknown }, req, reply) => {
     if (err.statusCode && err.statusCode < 500) {

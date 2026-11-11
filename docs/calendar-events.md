@@ -89,6 +89,14 @@ faite avant ce changement continue d’alimenter le dashboard ; la carte demande
 reconnecter Google pour obtenir l’écriture. Une reconnexion réussie efface les anciennes
 erreurs « reconnecte-toi » des cartes.
 
+## Pages publiques exigées par Google
+
+Pour passer l’app OAuth en « In production », Google exige une page d’accueil et des règles
+de confidentialité valides. Le serveur sert donc deux pages publiques, sans script ni
+connexion : `/about` (page d’accueil) et `/privacy`. Le service worker ne les remplace pas
+par l’app. `up.railway.app` figurant sur la Public Suffix List, le domaine autorisé à
+déclarer chez Google est le sous-domaine complet `brain-capture-production-8fa2.up.railway.app`.
+
 ## Sauvegarde
 
 Les propositions d’agenda ne font pas partie de l’export JSON. Une capture restaurée
