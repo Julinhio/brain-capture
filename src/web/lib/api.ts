@@ -1,6 +1,7 @@
 import type { ApiError, ApiErrorCode, Capture, CaptureStatus, Me } from '../../shared/types';
 import type { Category } from '../../shared/categories';
 import type { CalendarDay, Project, ProjectState, RadarSummary, TodayData } from '../../shared/dashboard';
+import type { CaptureEventResponse, EventDraft } from '../../shared/event';
 
 export interface Overview {
   counts: Record<Category, number>;
@@ -71,7 +72,14 @@ export const api = {
   today: (timeZone: string) => request<TodayData>('GET', `/api/today?${new URLSearchParams({ timeZone })}`),
   radars: () => request<{ jobs: RadarSummary; automata: RadarSummary }>('GET', '/api/radars'),
   calendarDay: (timeZone: string) => request<CalendarDay>('GET', `/api/calendar/day?${new URLSearchParams({ timeZone })}`),
-  connectCalendar: () => request<{ url: string }>('POST', '/api/calendar/connect'),
+  /** `returnTo`: path of this app the browser comes back to after Google's consent screen. */
+  connectCalendar: (returnTo?: string) => request<{ url: string }>('POST', '/api/calendar/connect', returnTo ? { returnTo } : {}),
+  captureEvent: (captureId: string) => request<CaptureEventResponse>('GET', `/api/captures/${captureId}/event`),
+  confirmEvent: (captureId: string, draft: EventDraft) =>
+    request<CaptureEventResponse>('POST', `/api/captures/${captureId}/event`, { draft }),
+  setEventState: (captureId: string, state: 'proposed' | 'dismissed') =>
+    request<CaptureEventResponse>('PATCH', `/api/captures/${captureId}/event`, { state }),
+  rereadEvent: (captureId: string) => request<CaptureEventResponse>('POST', `/api/captures/${captureId}/event/extract`),
   disconnectCalendar: () => request<{ ok: true }>('DELETE', '/api/calendar/connection'),
   selectCalendars: (calendarIds: string[] | null) => request<{ ok: true }>('PATCH', '/api/calendar/selection', { calendarIds }),
   projects: () => request<{ projects: Project[] }>('GET', '/api/projects').then((r) => r.projects),
@@ -95,14 +103,32 @@ export const api = {
     return request<{ captures: Capture[]; nextCursor: string | null }>('GET', `/api/captures?${qs}`);
   },
   getCapture: (id: string) => request<{ capture: Capture }>('GET', `/api/captures/${id}`).then((r) => r.capture),
-  createCapture: (input: { clientId: string; kind: 'text' | 'link'; text: string; url?: string; device: string }) =>
+  createCapture: (input: {
+    clientId: string;
+    kind: 'text' | 'link';
+    text: string;
+    url?: string;
+    device: string;
+    capturedAt?: number;
+    timeZone?: string;
+  }) =>
     request<{ capture: Capture; created: boolean }>('POST', '/api/captures', input).then((r) => r.capture),
-  createVoiceCapture: (input: { clientId: string; audio: Blob; mimeType: string; durationMs: number; device: string }) => {
+  createVoiceCapture: (input: {
+    clientId: string;
+    audio: Blob;
+    mimeType: string;
+    durationMs: number;
+    device: string;
+    capturedAt?: number;
+    timeZone?: string;
+  }) => {
     const form = new FormData();
     // Fields first: the server reads them before the file stream.
     form.append('clientId', input.clientId);
     form.append('durationMs', String(Math.round(input.durationMs)));
     form.append('device', input.device);
+    if (input.capturedAt !== undefined) form.append('capturedAt', String(Math.round(input.capturedAt)));
+    if (input.timeZone) form.append('timeZone', input.timeZone);
     form.append('audio', input.audio, `recording.${extensionFor(input.mimeType)}`);
     return request<{ capture: Capture; created: boolean }>('POST', '/api/captures/voice', form, VOICE_TIMEOUT_MS).then((r) => r.capture);
   },
@@ -116,6 +142,14 @@ function extensionFor(mimeType: string): string {
   if (mimeType.includes('ogg')) return 'ogg';
   if (mimeType.includes('wav')) return 'wav';
   return 'webm';
+}
+
+export function deviceTimeZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function deviceLabel(): string {

@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { Capture } from '../../shared/types';
-import { api, deviceLabel, RequestError } from './api';
+import { api, deviceLabel, deviceTimeZone, RequestError } from './api';
 
 /**
  * Every capture is written here before the first upload attempt and removed only once the
@@ -14,7 +14,10 @@ import { api, deviceLabel, RequestError } from './api';
 interface OutboxBase {
   clientId: string;
   device: string;
+  /** Device clock at capture time; relative dates ("mardi prochain") are read from it. */
   createdAt: number;
+  /** Device zone at capture time. Missing on items queued by older versions. */
+  timeZone?: string;
   attempts: number;
   lastError: string | null;
   /** The server refused the content itself; automatic retries skip it until edited or discarded. */
@@ -49,6 +52,7 @@ export function makeItem(input: NewOutboxItem): OutboxItem {
     clientId: crypto.randomUUID(),
     device: deviceLabel(),
     createdAt: Date.now(),
+    timeZone: deviceTimeZone(),
     attempts: 0,
     lastError: null,
   };
@@ -86,9 +90,19 @@ function upload(item: OutboxItem): Promise<Capture> {
       mimeType: item.mimeType,
       durationMs: item.durationMs,
       device: item.device,
+      capturedAt: item.createdAt,
+      timeZone: item.timeZone,
     });
   }
-  return api.createCapture({ clientId: item.clientId, kind: item.kind, text: item.text, url: item.url, device: item.device });
+  return api.createCapture({
+    clientId: item.clientId,
+    kind: item.kind,
+    text: item.text,
+    url: item.url,
+    device: item.device,
+    capturedAt: item.createdAt,
+    timeZone: item.timeZone,
+  });
 }
 
 /** Sends one item. Concurrent calls for the same item share a single request. */

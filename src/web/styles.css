@@ -1420,3 +1420,26 @@ a {
     transition: none !important;
   }
 }
+
+/* Calendar event proposed from a capture. */
+.event-card { margin-top: 20px; padding: 16px; border: 1px solid rgba(255, 173, 82, 0.28); border-radius: var(--radius-lg); background: var(--accent-soft); }
+.event-card[data-state='created'] { border-color: rgba(98, 208, 143, 0.3); background: var(--success-soft); }
+.event-card-head { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-weight: 600; color: var(--accent); }
+.event-card[data-state='created'] .event-card-head { color: var(--success); }
+.event-summary { display: flex; flex-direction: column; gap: 4px; margin: 0 0 12px; overflow-wrap: anywhere; }
+.event-summary span { color: var(--text-muted); font-size: 14px; }
+.event-form { display: grid; gap: 12px; }
+.event-field { display: grid; gap: 6px; min-width: 0; }
+.event-field > span { font-size: 12px; color: var(--text-muted); }
+.event-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 420px) { .event-row { grid-template-columns: 1fr; } }
+.event-check { display: flex; align-items: center; gap: 8px; min-height: 36px; font-size: 14px; }
+.event-check input { accent-color: var(--accent); width: 18px; height: 18px; }
+.event-preview { margin: 0; font-size: 14px; font-weight: 550; }
+.event-form .hint { margin: 0; }
+.event-card .sheet-actions { margin-top: 0; }
+.event-card .sheet-actions .btn { white-space: nowrap; }
+.event-card .sheet-actions .btn-ghost { flex: 0 0 auto; }
+.event-ok { color: var(--success); }
+.event-dismissed { margin-top: 16px; }
+.event-card .link-btn { padding: 0; font-size: inherit; color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }

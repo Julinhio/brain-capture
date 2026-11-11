@@ -40,6 +40,9 @@ export type ApiErrorCode =
   | 'empty_transcription'
   | 'audio_too_large'
   | 'forbidden_origin'
+  /** Google refused because the connection expired or lacks the right: reconnect. */
+  | 'calendar_reconnect'
+  | 'calendar_unavailable'
   | 'internal';
 
 export interface ApiError {

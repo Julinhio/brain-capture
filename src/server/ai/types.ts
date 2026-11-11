@@ -12,6 +12,26 @@ export interface ClassifyResult {
   title: string;
 }
 
+export interface EventExtractInput {
+  text: string;
+  /** When the capture was made, on the phone; relative dates are computed from it. */
+  reference: Date;
+  /** The phone's IANA zone at capture time. */
+  timeZone: string;
+}
+
+/** The model's raw answer, before normalisation (see event-prompt.ts). */
+export interface EventExtraction {
+  isEventRequest: boolean;
+  title: string;
+  allDay: boolean;
+  start: string | null;
+  startTimeZone: string | null;
+  end: string | null;
+  endTimeZone: string | null;
+  location: string | null;
+}
+
 export interface TranscribeInput {
   audio: Buffer;
   filename: string;
@@ -23,6 +43,7 @@ export interface Ai {
   readonly available: boolean;
   transcribe(input: TranscribeInput): Promise<{ text: string }>;
   classify(input: ClassifyInput): Promise<ClassifyResult>;
+  extractEvent(input: EventExtractInput): Promise<EventExtraction>;
 }
 
 /** What the provider said when it refused a request (short, safe to log and to show). */

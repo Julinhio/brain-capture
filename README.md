@@ -28,6 +28,8 @@ npm run typecheck
 npm run build
 ```
 
+`scripts/eval-event.ts` does the same for calendar requests (« mets dans mon agenda… »): it checks the event the card would propose, see `docs/calendar-events.md`.
+
 `scripts/eval-classify.ts` runs the real classifier on representative captures (needs a Groq key, costs a fraction of a cent):
 
 ```bash
@@ -82,7 +84,8 @@ The same version shows at the bottom of History (phone) and of the desktop sideb
 | --- | --- | --- |
 | `DATABASE_URL` | Railway (reference to the Postgres service) | `postgres://…` in production, `pglite:<dir>` locally |
 | `OWNER_EMAIL`, `OWNER_PASSWORD_HASH` | Railway | The single account, created or updated at boot. Changing the hash signs every device out. |
-| `GROQ_API_KEY` | Railway | Transcription and sorting |
+| `GROQ_API_KEY` | Railway | Transcription, sorting and reading calendar requests |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `CALENDAR_ENCRYPTION_KEY` | Railway | Google Calendar: dashboard reading, events added from captures |
 | `ALLOWED_ORIGINS` | local `.env` only | Extra origins allowed to send state-changing requests (the Vite dev proxy) |
 | `GROQ_TRANSCRIBE_MODEL`, `GROQ_CLASSIFY_MODEL` | optional | Model overrides |
 | `APP_VERSION` | Railway, set by the deploy | Commit shown in the app and returned by `/api/health` |

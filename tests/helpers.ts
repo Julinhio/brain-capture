@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import type { Ai, ClassifyInput, ClassifyResult } from '../src/server/ai/types.js';
+import type { Ai, ClassifyInput, ClassifyResult, EventExtractInput, EventExtraction } from '../src/server/ai/types.js';
 import { AiRejectedError, AiUnavailableError } from '../src/server/ai/types.js';
 import { buildApp } from '../src/server/app.js';
 import { hashPassword } from '../src/server/auth/password.js';
@@ -28,6 +28,25 @@ export class FakeAi implements Ai {
     }
     if (this.failTranscribe) throw new AiUnavailableError('transcription down');
     return { text: this.transcript };
+  }
+
+  eventCalls: EventExtractInput[] = [];
+  failEvent = false;
+  nextEvent: EventExtraction = {
+    isEventRequest: true,
+    title: 'Dentiste',
+    allDay: false,
+    start: '2026-11-17T15:00',
+    startTimeZone: null,
+    end: null,
+    endTimeZone: null,
+    location: null,
+  };
+
+  async extractEvent(input: EventExtractInput) {
+    this.eventCalls.push(input);
+    if (this.failEvent) throw new AiUnavailableError('extraction down');
+    return this.nextEvent;
   }
 
   async classify(input: ClassifyInput) {
