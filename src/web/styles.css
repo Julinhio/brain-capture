@@ -82,6 +82,7 @@
 .radar-numbers { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin: 22px 0; }
 .radar-numbers strong { display: block; font-size: 46px; font-weight: 550; line-height: 1.1; letter-spacing: -.05em; font-variant-numeric: tabular-nums; }
 .radar-numbers span { color: var(--text-muted); font-size: 12px; }
+.radar-numbers .radar-total { display: block; margin-top: 4px; color: var(--text-faint); }
 .radar-new { text-align: right; }
 .radar-new strong { font-size: 24px; color: var(--success); }
 .radar-stack { display: flex; height: 9px; gap: 3px; overflow: hidden; border-radius: 3px; background: var(--surface-2); }

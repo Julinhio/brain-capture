@@ -3,10 +3,10 @@ import type { Capture } from './types.js';
 export const PROJECT_STATES = ['idea', 'upcoming', 'active', 'completed'] as const;
 export type ProjectState = (typeof PROJECT_STATES)[number];
 export const PROJECT_LABELS: Record<ProjectState, string> = {
-  idea: 'Idée',
-  upcoming: 'À venir',
-  active: 'En cours',
-  completed: 'Terminé',
+  idea: 'Idea',
+  upcoming: 'Upcoming',
+  active: 'Active',
+  completed: 'Completed',
 };
 export interface Project {
   id: string;

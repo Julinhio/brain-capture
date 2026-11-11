@@ -18,18 +18,18 @@ export function ProjectLinks({ captureId }: { captureId: string }) {
     },
   });
   return (
-    <section className="block" aria-label="Projets liés">
+    <section className="block" aria-label="Linked projects">
       <div className="block-head">
-        <span className="mono">Projets liés</span>
+        <span className="mono">Linked projects</span>
         <button type="button" className="btn btn-sm" onClick={() => navigate(`/?view=workspace&from=${captureId}`)}>
           <FolderPlus size={15} aria-hidden="true" />
-          Créer un projet
+          Create a project
         </button>
       </div>
       {projects.isPending || links.isPending ? (
-        <p className="hint">Chargement…</p>
+        <p className="hint">Loading…</p>
       ) : projects.isError || links.isError ? (
-        <p className="field-error">Impossible de charger les projets.</p>
+        <p className="field-error">Projects could not be loaded.</p>
       ) : projects.data?.length ? (
         <div className="project-link-options">
           {projects.data.map((p) => (
@@ -45,11 +45,11 @@ export function ProjectLinks({ captureId }: { captureId: string }) {
           ))}
         </div>
       ) : (
-        <p className="hint">Rassemble plusieurs captures autour d’un même projet.</p>
+        <p className="hint">Group several captures around one project.</p>
       )}
       {mutation.isError && (
         <p className="field-error" role="alert">
-          Lien non modifié. {mutation.error.message}
+          Link not changed. {mutation.error.message}
         </p>
       )}
     </section>

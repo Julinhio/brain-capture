@@ -36,7 +36,7 @@ export function TopBar() {
         <span className="brand-mark" aria-hidden="true" />
         Brain Capture
       </button>
-      <button type="button" className="pill-btn" onClick={() => navigate('/?view=today')} aria-label="Aujourd’hui"><CalendarDays size={16} aria-hidden="true" /></button>
+      <button type="button" className="pill-btn" onClick={() => navigate('/?view=today')} aria-label="Today"><CalendarDays size={16} aria-hidden="true" /></button>
       <button type="button" className="pill-btn" onClick={() => navigate('/history')}>
         <Clock size={16} aria-hidden="true" />
         History
