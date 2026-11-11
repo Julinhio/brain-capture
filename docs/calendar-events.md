@@ -39,7 +39,8 @@ futur ou vieille de plus de 400 jours) est ignorée au profit de l’heure du se
 fuseau absent (anciennes versions de l’app) vaut Europe/Paris.
 
 Règle de fin, quand elle n’est pas dite :
-- événement à heure : une heure après le début, dans le fuseau du début ;
+- événement à heure : une heure après le début, dans le fuseau du début (la nuit du passage
+  à l’heure d’hiver, si cette heure se répète, la fin passe à l’heure suivante) ;
 - sans heure dite : événement sur toute la journée, d’un seul jour.
 
 Le modèle n’invente jamais d’heure : « mardi matin » donne un événement sur la journée,
@@ -59,6 +60,9 @@ La transcription d’origine (`originalText`) va dans la description de l’év�
 - Les corrections faites dans la carte sont enregistrées avant de partir vers l’écran de
   consentement Google, et retrouvées au retour.
 - Une fois l’événement créé, un nouvel appui ne contacte plus Google.
+- Deux confirmations simultanées de la même capture (deux appareils) passent l’une après
+  l’autre dans le serveur ; la carte garde la version que Google a reçue. Ce verrou est en
+  mémoire : il suppose un seul processus serveur, ce qui est le cas sur Railway.
 
 ## Erreurs
 

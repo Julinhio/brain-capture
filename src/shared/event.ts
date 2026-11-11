@@ -101,9 +101,18 @@ export function addDays(date: string, days: number): string {
   return new Date(Date.parse(`${date}T12:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 }
 
-/** Start plus the default duration, as a wall clock in the start zone. */
+/**
+ * Start plus the default duration, as a wall clock in the start zone. On the night the clocks
+ * go back, one hour after 01:30 can read 01:30 again: the wall clock alone cannot say which
+ * one, so the end moves to the next distinct hour (02:30) and stays after the start.
+ */
 export function defaultEnd(start: string, timeZone: string): string {
-  return wallClock(new Date(zonedToUtc(start, timeZone).getTime() + DEFAULT_DURATION_MIN * 60_000), timeZone);
+  const at = zonedToUtc(start, timeZone).getTime();
+  for (const minutes of [DEFAULT_DURATION_MIN, DEFAULT_DURATION_MIN + 60]) {
+    const end = wallClock(new Date(at + minutes * 60_000), timeZone);
+    if (end > start) return end;
+  }
+  return wallClock(new Date(at + (DEFAULT_DURATION_MIN + 120) * 60_000), timeZone);
 }
 
 /** Null when the draft can be sent to Google; otherwise a sentence for the card. */

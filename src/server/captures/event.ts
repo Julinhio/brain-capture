@@ -229,12 +229,40 @@ async function writeAccess(db: Db, config: Config, ownerId: string): Promise<Cal
 
 export type ConfirmResult = { ok: true; row: CaptureEventRow } | ({ ok: false } & EventFailure);
 
+// One confirmation at a time per capture, Google call included: two devices confirming
+// different versions at once would otherwise race, and the card could end up showing a
+// version other than the one Google kept. The app runs as a single server process (one
+// Railway service); with several, this would need a database lock instead.
+const confirming = new Map<string, Promise<unknown>>();
+async function oneAtATime<T>(key: string, task: () => Promise<T>): Promise<T> {
+  const previous = confirming.get(key) ?? Promise.resolve();
+  const run = previous.then(task, task);
+  const settled = run.catch(() => undefined);
+  confirming.set(key, settled);
+  try {
+    return await run;
+  } finally {
+    if (confirming.get(key) === settled) confirming.delete(key);
+  }
+}
+
 /**
  * Creates the confirmed event in Google, at most once per capture. Already created: returns
  * it without calling Google. Any failure is stored on the proposal, so it is still visible
  * when the capture is opened again later.
  */
 export async function confirmEvent(
+  db: Db,
+  config: Config,
+  ownerId: string,
+  captureId: string,
+  draft: EventDraft,
+  log?: FastifyBaseLogger,
+): Promise<ConfirmResult> {
+  return oneAtATime(captureId, () => confirmNow(db, config, ownerId, captureId, draft, log));
+}
+
+async function confirmNow(
   db: Db,
   config: Config,
   ownerId: string,
@@ -296,6 +324,8 @@ export async function confirmEvent(
     .update(captureEvents)
     .set({
       state: 'created',
+      // Exactly the version Google now holds.
+      draft,
       calendarId: TARGET_CALENDAR,
       googleEventId: created.id,
       eventUrl: safeGoogleUrl(created.htmlLink),

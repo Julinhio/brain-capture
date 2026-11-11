@@ -124,6 +124,13 @@ describe('time zones and the end-time rule', () => {
     );
   });
 
+  it('stays after the start on the night the clocks go back', () => {
+    // New York repeats 01:00-02:00 on 1 November 2026.
+    const d = normalizeExtraction(extraction({ start: '2026-11-01T01:30' }), { timeZone: 'America/New_York', fallbackTitle: 'x' });
+    expect(d.end! > d.start!).toBe(true);
+    expect(draftProblem(d)).toBeNull();
+  });
+
   it('keeps a flight’s departure and arrival each in its own zone', () => {
     const d = normalizeExtraction(
       extraction({
@@ -444,6 +451,23 @@ describe('capture to calendar event, end to end', () => {
     });
     const [row] = await ctx.db.select().from(captureEvents).where(eq(captureEvents.captureId, c.id));
     expect(row).toMatchObject({ state: 'created', calendarId: 'primary', googleEventId: googleEventId(c.id) });
+  });
+
+  it('two devices confirming different versions at once: the card shows what Google kept', async () => {
+    await connect(CALENDAR_SCOPES.join(' '));
+    const google = fakeGoogle();
+    vi.spyOn(OAuth2Client.prototype, 'request').mockImplementation(google.request as never);
+    const c = await capture(DENTIST);
+    const { draft } = (await eventOf(c.id)).event;
+    const [a, b] = await Promise.all([
+      confirm(c.id, { ...draft, location: 'Phone' }),
+      confirm(c.id, { ...draft, location: 'Laptop' }),
+    ]);
+    expect([a.statusCode, b.statusCode]).toEqual([200, 200]);
+    expect(google.events.size).toBe(1);
+    expect(google.request.mock.calls.filter(([r]) => r.method === 'POST' || r.method === 'PUT')).toHaveLength(1);
+    const kept = [...google.events.values()][0]!.location;
+    expect((await eventOf(c.id)).event.draft.location).toBe(kept);
   });
 
   it('an expired Google token surfaces as "reconnect", and reconnecting clears it', async () => {
