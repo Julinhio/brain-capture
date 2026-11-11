@@ -63,7 +63,9 @@ export default defineConfig({
         // are never cached by the service worker (IndexedDB outbox handles offline saves).
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api\//],
+        // /about and /privacy are public server pages (required by Google's OAuth consent
+        // screen): the app shell must not stand in for them.
+        navigateFallbackDenylist: [/^\/api\//, /^\/(about|privacy)\/?$/],
         runtimeCaching: [],
         cleanupOutdatedCaches: true,
       },
@@ -78,6 +80,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': 'http://localhost:3000',
+      '/about': 'http://localhost:3000',
+      '/privacy': 'http://localhost:3000',
     },
   },
 });
