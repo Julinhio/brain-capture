@@ -18,6 +18,15 @@ capture peut alimenter plusieurs projets. Lier ou détacher ne change ni ne supp
 capture. La sauvegarde v1 inclut désormais projets et liens ; les anciens fichiers
 restent acceptés. Les tokens Google ne sont jamais exportés.
 
+## My day
+
+La carte montre toujours le titre, les compteurs (rendez-vous, temps libre entre 8 h et
+20 h) et la frise. Le choix des calendriers et le détail (événements sur la journée,
+rendez-vous, créneaux libres) sont dans un volet « Calendars and appointments », replié par
+défaut. Déplié, il le reste aux visites suivantes sur ce navigateur (`localStorage`, clé
+`brain-capture.today.my-day-expanded`). Si aucun calendrier n’est sélectionné, le volet
+s’ouvre de lui-même : c’est le seul moyen d’en choisir un.
+
 ## Google Calendar
 
 Google Cloud : client OAuth Web, Google Calendar API activée, scopes
@@ -79,8 +88,14 @@ segments = total sont vérifiés avant affichage. Le total emploi exclut les dou
 Le total Automata compte les entreprises analysées hors agences d’intérim, comme les
 filtres du radar. Les compteurs suivent les états actuels, pas un entonnoir historique.
 
-La carte Job Radar met en avant les offres « À voir » du radar (To review), le total
-unique passe en dessous. Les compteurs sont nommés en anglais par Brain Capture à partir
+Les deux cartes radar ont la même taille et le même rendu : grand chiffre, nouveautés sur
+24 h, barre et six lignes côte à côte. Job Radar met en avant les offres « À voir » du radar
+(To review) et ne montre que six lignes, dans cet ordre : To review, Worth a try,
+Interesting, Applied, To re-check, Dismissed (décision de Julien, 13/11/2026). Les autres
+segments envoyés par le radar (non retenues par l’IA, tri en attente, erreurs de tri) et
+ses compteurs annexes (prioritaires, doublons) ne sont plus affichés, ni dans la barre :
+ils comptent toujours dans le total vérifié côté serveur. Une ligne gardée que la source
+n’envoie pas s’affiche « — », jamais 0. La carte Automata affiche ses segments tels quels. Les compteurs sont nommés en anglais par Brain Capture à partir
 de leurs clés stables (`a_voir`, `a_tenter`…) ; une clé inconnue garde le libellé de la source.
 Le radar emploi calcule ses segments avec la même partition que ses onglets.
 

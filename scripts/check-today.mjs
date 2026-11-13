@@ -37,9 +37,14 @@ async function main() {
       kind === 'jobs'
         ? [
             { key: 'a_voir', label: 'À voir', value: 124 },
+            { key: 'a_tenter', label: 'À tenter', value: 31 },
             { key: 'interessante', label: 'Intéressantes', value: 18 },
             { key: 'postule', label: 'Candidatures', value: 12 },
             { key: 'ecartee', label: 'Écartées', value: 27 },
+            { key: 'rejected', label: 'Non retenues par l’IA', value: 2390 },
+            { key: 'a_relire', label: 'À relire', value: 4 },
+            { key: 'pending', label: 'Tri en attente', value: 60 },
+            { key: 'errors', label: 'Erreurs de tri', value: 3 },
           ]
         : [
             { key: 'a_verifier', label: 'À vérifier', value: 56 },
@@ -56,7 +61,13 @@ async function main() {
         total: segments.reduce((n, m) => n + m.value, 0),
         new24h: kind === 'jobs' ? 14 : 6,
         segments,
-        extra: [],
+        extra:
+          kind === 'jobs'
+            ? [
+                { key: 'prioritaires', label: 'Prioritaires', value: 9 },
+                { key: 'duplicates', label: 'Doublons exclus', value: 150 },
+              ]
+            : [],
       }),
     );
   });
@@ -77,7 +88,8 @@ async function main() {
     app = await buildApp({ db, ai: createUnavailableAi(), config, webDir: path.resolve('dist/web') });
     await app.listen({ port: 0, host: '127.0.0.1' });
     const base = `http://127.0.0.1:${app.server.address().port}`;
-    browser = await chromium.launch();
+    // BROWSER_CHANNEL=chrome (or msedge) uses an installed browser when Playwright's own is absent.
+    browser = await chromium.launch(process.env.BROWSER_CHANNEL ? { channel: process.env.BROWSER_CHANNEL } : {});
     const context = await browser.newContext({
       viewport: { width: 1440, height: 1080 },
       timezoneId: 'Europe/Paris',
@@ -131,12 +143,9 @@ async function main() {
       if (!response.ok()) throw new Error('Project fixture failed');
     }
     await page.reload();
-    await page
-      .getByRole('heading', { name: 'Bonjour, Julien.' })
-      .or(page.getByRole('heading', { name: 'Bonsoir, Julien.' }))
-      .waitFor();
-    await page.getByText('181', { exact: true }).waitFor();
-    await page.getByText('La connexion Google doit être configurée', { exact: false }).waitFor();
+    await page.getByRole('heading', { name: /^Good (morning|afternoon|evening), Julien\.$/ }).waitFor();
+    await page.locator('.radar-numbers strong').getByText('124', { exact: true }).waitFor();
+    await page.getByText('The Google connection must be configured', { exact: false }).waitFor();
     // Calendar display proof is fixture based; OAuth security / API pagination are tested separately.
     const day = window.date;
     await page.route('**/api/calendar/day?*', (route) =>
@@ -144,6 +153,10 @@ async function main() {
         json: {
           state: 'ready',
           checkedAt: new Date().toISOString(),
+          calendars: [
+            { id: 'primary', name: 'Julien', color: '#f0a35b', owned: true, selected: true, loadState: 'ready' },
+            { id: 'family', name: 'Famille', color: '#6fb6e8', owned: true, selected: false, loadState: 'off' },
+          ],
           events: [
             {
               id: 'training',
@@ -177,35 +190,65 @@ async function main() {
       }),
     );
     await page.reload();
-    await page.getByText('Formation · API et conversations', { exact: true }).waitFor();
     await mkdir('.shots', { recursive: true });
-    await page.screenshot({ path: '.shots/today-desktop.jpg', fullPage: true, type: 'jpeg', quality: 75 });
+    const toggle = page.getByRole('button', { name: /Calendars and appointments/ });
+    // Collapsed by default: counters and timeline visible, calendars and appointments not.
+    await page.locator('.day-stats').getByText('appointments & events').waitFor();
+    await page.locator('.day-timeline .busy-slot').first().waitFor();
+    if ((await toggle.getAttribute('aria-expanded')) !== 'false') throw new Error('My day should start collapsed');
+    if (await page.locator('.calendar-panel').getByText('Formation · API et conversations', { exact: true }).count())
+      throw new Error('Appointments shown while collapsed');
+    if (await page.getByRole('group', { name: 'Included calendars' }).count())
+      throw new Error('Calendar choice shown while collapsed');
+    // Both radar cards: same number of rows, same height, the left-out job segments nowhere.
+    const radar = await page.evaluate(() => {
+      const cards = [...document.querySelectorAll('.radar-card')];
+      return {
+        heights: cards.map((c) => Math.round(c.getBoundingClientRect().height)),
+        rows: cards.map((c) => c.querySelectorAll('.radar-breakdown > div').length),
+        barSegments: cards.map((c) => c.querySelectorAll('.radar-stack > span').length),
+        jobsText: cards[0]?.textContent ?? '',
+      };
+    });
+    if (radar.rows.join() !== '6,6') throw new Error('Radar rows ' + radar.rows.join());
+    if (radar.heights[0] !== radar.heights[1]) throw new Error('Radar heights differ: ' + radar.heights.join());
+    for (const gone of ['Not kept by AI', 'Awaiting sorting', 'Sorting errors', 'Priority', 'Duplicates', 'unique offers', '2,390'])
+      if (radar.jobsText.includes(gone)) throw new Error('Job Radar still shows ' + gone);
+    await page.screenshot({ path: '.shots/today-desktop-collapsed.png', fullPage: true });
+    await toggle.click();
+    await page.locator('.calendar-panel').getByText('Formation · API et conversations', { exact: true }).waitFor();
+    await page.getByRole('group', { name: 'Included calendars' }).waitFor();
+    await page.getByText('Free slots', { exact: true }).waitFor();
+    await page.screenshot({ path: '.shots/today-desktop-expanded.png', fullPage: true });
+    // Remembered on this computer: still open after a reload.
+    await page.reload();
+    await page.locator('.calendar-panel').getByText('Formation · API et conversations', { exact: true }).waitFor();
     await page.getByRole('button', { name: 'Everything', exact: false }).click();
     await page.getByRole('heading', { name: 'Automata', exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Mes projets', exact: true }).click();
-    await page.getByRole('button', { name: 'Nouveau projet', exact: true }).click();
-    await page.getByLabel('Nom', { exact: true }).fill('Projet créé au navigateur');
-    await page.getByLabel('État', { exact: true }).selectOption('active');
+    await page.getByRole('button', { name: 'My projects', exact: true }).click();
+    await page.getByRole('button', { name: 'New project', exact: true }).click();
+    await page.getByLabel('Name', { exact: true }).fill('Projet créé au navigateur');
+    await page.getByLabel('State', { exact: true }).selectOption('active');
     await page.getByLabel('Intention', { exact: true }).fill('Vérifier le parcours complet.');
-    await page.getByRole('button', { name: 'Enregistrer le projet' }).click();
+    await page.getByRole('button', { name: 'Save project' }).click();
     const projectButton = page.getByRole('button', { name: 'Projet créé au navigateur', exact: false });
     await projectButton.waitFor();
     await projectButton.click();
-    await page.getByLabel('Ajouter une capture').fill('radar');
-    await page.getByRole('button', { name: 'Lier', exact: true }).click();
-    await page.getByRole('button', { name: 'Détacher', exact: true }).waitFor();
+    await page.getByLabel('Add a capture').fill('radar');
+    await page.getByRole('button', { name: 'Link', exact: true }).click();
+    await page.getByRole('button', { name: 'Unlink', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Une démo du radar pour Automata', exact: true }).click();
     await page.getByRole('dialog', { name: 'Capture detail' }).waitFor();
     await page.getByRole('checkbox', { name: 'Projet créé au navigateur', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Close detail' }).click();
-    await page.getByRole('heading', { name: 'Le projet', exact: true }).waitFor();
+    await page.getByRole('heading', { name: 'Project', exact: true }).waitFor();
     await page.screenshot({ path: '.shots/projects-desktop.jpg', fullPage: true, type: 'jpeg', quality: 75 });
     // Creating from an existing project's editor must open a clean form and never
     // update the project that was being viewed.
-    await page.getByRole('button', { name: 'Nouveau projet', exact: true }).click();
-    if (await page.getByLabel('Nom', { exact: true }).inputValue()) throw new Error('New project kept the old name');
-    await page.getByLabel('Nom', { exact: true }).fill('Second projet indépendant');
-    await page.getByRole('button', { name: 'Enregistrer le projet' }).click();
+    await page.getByRole('button', { name: 'New project', exact: true }).click();
+    if (await page.getByLabel('Name', { exact: true }).inputValue()) throw new Error('New project kept the old name');
+    await page.getByLabel('Name', { exact: true }).fill('Second projet indépendant');
+    await page.getByRole('button', { name: 'Save project' }).click();
     await page.getByRole('button', { name: 'Second projet indépendant', exact: false }).waitFor();
     await page.getByRole('button', { name: 'Projet créé au navigateur', exact: false }).waitFor();
     const backup = await (await page.request.get(`${base}/api/export`)).json();
@@ -213,18 +256,23 @@ async function main() {
       throw new Error('Project backup does not match UI');
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${base}/?view=today`);
-    await page.getByText('Formation · API et conversations', { exact: true }).waitFor();
+    await page.locator('.calendar-panel').getByText('Formation · API et conversations', { exact: true }).waitFor();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
     if (overflow) throw new Error('Mobile dashboard overflows');
     await page.screenshot({ path: '.shots/today-mobile.jpg', fullPage: true, type: 'jpeg', quality: 70 });
     await page.goto(`${base}/capture`);
-    await page.getByRole('button', { name: 'Aujourd’hui', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Today', exact: true }).waitFor();
     if (errors.length) throw new Error(errors.join('\n'));
     if (sourceReads !== 2) throw new Error(`Source cache expected two reads, got ${sourceReads}`);
     console.log(
       JSON.stringify(
         {
           dashboard: true,
+          myDayCollapsedByDefault: true,
+          myDayExpandedRemembered: true,
+          radarRows: radar.rows,
+          radarHeights: radar.heights,
+          radarBarSegments: radar.barSegments,
           everything: true,
           projectCreateAndLink: true,
           projectDrawerReturn: true,
@@ -234,7 +282,7 @@ async function main() {
           capturePreserved: true,
           sourceReads,
           consoleErrors: errors,
-          screenshots: ['.shots/today-desktop.jpg', '.shots/projects-desktop.jpg', '.shots/today-mobile.jpg'],
+          screenshots: ['.shots/today-desktop-collapsed.png', '.shots/today-desktop-expanded.png', '.shots/projects-desktop.jpg', '.shots/today-mobile.jpg'],
           calendar: 'fixture; live OAuth setup still required',
         },
         null,

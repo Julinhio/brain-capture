@@ -231,16 +231,63 @@ describe('calendar security and event reading', () => {
 });
 
 describe('radar card headline', () => {
-  it('leads with the offers to review for jobs, and keeps the total alongside', async () => {
+  it('leads with the offers to review for jobs, with no total line under it', async () => {
     const { radarHeadline } = await import('../src/web/screens/Today.js');
     const segments = [
       { key: 'a_voir', label: 'À voir', value: 12 },
       { key: 'a_tenter', label: 'À tenter', value: 91 },
     ];
-    expect(radarHeadline('jobs', { total: 2846, segments })).toEqual({ value: 12, label: 'offers to review', total: 2846 });
+    expect(radarHeadline('jobs', { total: 2846, segments })).toEqual({ value: 12, label: 'offers to review' });
     expect(radarHeadline('jobs', { total: 5, segments: [{ key: 'a_voir', label: 'À voir', value: 1 }] }).label).toBe('offer to review');
     // A radar that does not report "À voir" yet: fall back to the total rather than a wrong figure.
-    expect(radarHeadline('jobs', { total: 2846, segments: [] })).toMatchObject({ value: 2846, total: null });
-    expect(radarHeadline('automata', { total: 40, segments })).toMatchObject({ value: 40, label: 'companies (agencies excluded)' });
+    expect(radarHeadline('jobs', { total: 2846, segments: [] })).toEqual({ value: 2846, label: 'unique offers in total' });
+    expect(radarHeadline('automata', { total: 40, segments })).toEqual({ value: 40, label: 'companies (agencies excluded)' });
+  });
+});
+
+describe('radar card rows', () => {
+  // What the job radar sends today (radar-emploi src/radar/brain-summary.ts), in its order.
+  const jobSegments = [
+    { key: 'a_voir', label: 'À voir', value: 12 },
+    { key: 'a_tenter', label: 'À tenter', value: 91 },
+    { key: 'interessante', label: 'Intéressantes', value: 7 },
+    { key: 'postule', label: 'Candidatures', value: 5 },
+    { key: 'ecartee', label: 'Écartées', value: 40 },
+    { key: 'rejected', label: 'Non retenues par l’IA', value: 2600 },
+    { key: 'a_relire', label: 'À relire', value: 3 },
+    { key: 'pending', label: 'Tri en attente', value: 80 },
+    { key: 'errors', label: 'Erreurs de tri', value: 8 },
+  ];
+
+  it('keeps the six job rows, in Julien’s order, and nothing else', async () => {
+    const { radarRows } = await import('../src/web/screens/Today.js');
+    expect(radarRows('jobs', jobSegments)).toEqual([
+      { key: 'a_voir', label: 'To review', value: 12 },
+      { key: 'a_tenter', label: 'Worth a try', value: 91 },
+      { key: 'interessante', label: 'Interesting', value: 7 },
+      { key: 'postule', label: 'Applied', value: 5 },
+      { key: 'a_relire', label: 'To re-check', value: 3 },
+      { key: 'ecartee', label: 'Dismissed', value: 40 },
+    ]);
+  });
+
+  it('shows a kept job row the source left out as unknown, not as zero', async () => {
+    const { radarRows } = await import('../src/web/screens/Today.js');
+    const rows = radarRows('jobs', jobSegments.filter((m) => m.key !== 'a_relire'));
+    expect(rows).toHaveLength(6);
+    expect(rows.find((r) => r.key === 'a_relire')).toEqual({ key: 'a_relire', label: 'To re-check', value: null });
+  });
+
+  it('lists the Automata segments as sent, with English labels', async () => {
+    const { radarRows } = await import('../src/web/screens/Today.js');
+    expect(
+      radarRows('automata', [
+        { key: 'a_verifier', label: 'À vérifier', value: 56 },
+        { key: 'nouveau', label: 'Nouveau', value: 1 },
+      ]),
+    ).toEqual([
+      { key: 'a_verifier', label: 'To check', value: 56 },
+      { key: 'nouveau', label: 'Nouveau', value: 1 },
+    ]);
   });
 });
