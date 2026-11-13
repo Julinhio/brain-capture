@@ -4,6 +4,7 @@ import {
   ArrowUpRight,
   BriefcaseBusiness,
   CalendarDays,
+  ChevronDown,
   ChevronRight,
   FolderKanban,
   Lightbulb,
@@ -324,6 +325,33 @@ export function Today({ onOpen }: { onOpen: (id: string) => void }) {
   );
 }
 
+export const MY_DAY_EXPANDED_KEY = 'brain-capture.today.my-day-expanded';
+
+/**
+ * A per-device display preference: collapsed unless this browser last left it open. Storage
+ * can be missing or refuse (private window, blocked site data): the card then just starts
+ * collapsed again.
+ */
+function useRememberedFlag(key: string): [boolean, (value: boolean) => void] {
+  const [value, setValue] = useState(() => {
+    try {
+      return window.localStorage.getItem(key) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const set = (next: boolean) => {
+    setValue(next);
+    try {
+      if (next) window.localStorage.setItem(key, '1');
+      else window.localStorage.removeItem(key);
+    } catch {
+      // Not remembered on this device; the choice still applies until the page is left.
+    }
+  };
+  return [value, set];
+}
+
 function CalendarPanel({
   data,
   loading,
@@ -362,6 +390,10 @@ function CalendarPanel({
   const calendars = data?.calendars ?? [];
   const selectedIds = calendars.filter((c) => c.selected).map((c) => c.id);
   const complete = ready && !selection.isPending && (data?.calendars ? selectedIds.length > 0 : true);
+  const [expanded, setExpanded] = useRememberedFlag(MY_DAY_EXPANDED_KEY);
+  // Nothing selected: the only way forward is the list of calendars, so it stays open.
+  const mustChoose = connected && calendars.length > 0 && selectedIds.length === 0 && !draftSelection;
+  const showDetails = expanded || mustChoose;
   const events = data?.events ?? [];
   const rhythm = dayRhythm(events, date);
   const timed = events.filter((e) => !e.allDay);
@@ -400,42 +432,6 @@ function CalendarPanel({
           )}
         </div>
       </div>
-      {connected && calendars.length > 0 && (
-        <div className="calendar-selection" role="group" aria-label="Included calendars">
-          <div className="calendar-selection-head">
-            <span className="hint">
-              {selectedIds.length} calendar{selectedIds.length === 1 ? '' : 's'} included
-            </span>
-            <button
-              type="button"
-              className="link-btn"
-              disabled={selection.isPending}
-              onClick={() => selection.mutate(null)}
-            >
-              All my calendars
-            </button>
-          </div>
-          <div className="calendar-options">
-            {calendars.map((c) => (
-              <label key={c.id} className={`calendar-option ${c.selected ? 'selected' : ''}`}>
-                <input
-                  type="checkbox"
-                  checked={draftSelection ? draftSelection.includes(c.id) : c.selected}
-                  disabled={selection.isPending}
-                  onChange={(e) =>
-                    selection.mutate(
-                      e.target.checked ? [...selectedIds, c.id] : selectedIds.filter((id) => id !== c.id),
-                    )
-                  }
-                />
-                <span className="calendar-color" style={{ backgroundColor: c.color }} aria-hidden="true" />
-                <span>{c.name}</span>
-                {c.loadState === 'error' && <span className="field-error">Unavailable</span>}
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
       {selection.isError && (
         <p className="field-error" role="alert">
           Selection not saved. {selection.error.message}
@@ -474,7 +470,7 @@ function CalendarPanel({
                 className="day-timeline"
                 style={{ height: Math.max(34, sourceLanes.length * 12 + 8) }}
                 role="img"
-                aria-label={`Free time between 8:00 and 20:00: ${rhythm.freeMinutes} minutes without appointments. Detailed times follow.`}
+                aria-label={`Free time between 8:00 and 20:00: ${rhythm.freeMinutes} minutes without appointments.`}
               >
                 {busySlots.map(({ event, start, end, lane }) => (
                   <span
@@ -510,58 +506,109 @@ function CalendarPanel({
               {events.length} event{events.length === 1 ? '' : 's'} loaded, partial reading.
             </p>
           )}
-          {allDay.length > 0 && (
-            <div className="all-day-events">
-              {allDay.map((e) => (
-                <span key={e.id}>
-                  {e.title}
-                  <small>
-                    {e.calendarName ? `${e.calendarName} · ` : ''}All day{!e.busy ? ' · free' : ''}
-                  </small>
-                </span>
-              ))}
-            </div>
-          )}
-          <div className="day-agenda">
-            {timed.map((e) => (
-              <div key={e.id} className={`agenda-event ${Date.parse(e.end) <= now.getTime() ? 'past' : ''}`}>
-                <time>
-                  {time(e.start)}
-                  <span>{time(e.end)}</span>
-                </time>
-                <span className="agenda-dot" style={{ backgroundColor: e.calendarColor ?? 'var(--accent)' }} />
-                <div>
-                  <strong>{e.title}</strong>
-                  {e.calendarName && <span className="event-calendar">{e.calendarName}</span>}
-                  {!e.busy && <span className="hint">Does not block your time</span>}
+          <button
+            type="button"
+            className="my-day-toggle"
+            aria-expanded={showDetails}
+            aria-controls="my-day-details"
+            disabled={mustChoose}
+            onClick={() => setExpanded(!expanded)}
+          >
+            <span className="grow">{showDetails ? 'Hide calendars and appointments' : 'Calendars and appointments'}</span>
+            <ChevronDown size={16} aria-hidden="true" />
+          </button>
+          {showDetails && (
+            <div id="my-day-details" className="my-day-details">
+              {calendars.length > 0 && (
+                <div className="calendar-selection" role="group" aria-label="Included calendars">
+                  <div className="calendar-selection-head">
+                    <span className="hint">
+                      {selectedIds.length} calendar{selectedIds.length === 1 ? '' : 's'} included
+                    </span>
+                    <button
+                      type="button"
+                      className="link-btn"
+                      disabled={selection.isPending}
+                      onClick={() => selection.mutate(null)}
+                    >
+                      All my calendars
+                    </button>
+                  </div>
+                  <div className="calendar-options">
+                    {calendars.map((c) => (
+                      <label key={c.id} className={`calendar-option ${c.selected ? 'selected' : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={draftSelection ? draftSelection.includes(c.id) : c.selected}
+                          disabled={selection.isPending}
+                          onChange={(e) =>
+                            selection.mutate(
+                              e.target.checked ? [...selectedIds, c.id] : selectedIds.filter((id) => id !== c.id),
+                            )
+                          }
+                        />
+                        <span className="calendar-color" style={{ backgroundColor: c.color }} aria-hidden="true" />
+                        <span>{c.name}</span>
+                        {c.loadState === 'error' && <span className="field-error">Unavailable</span>}
+                      </label>
+                    ))}
+                  </div>
                 </div>
-                {e.url && (
-                  <a
-                    className="link-btn"
-                    href={e.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label={`Open ${e.title} in Google Calendar`}
-                  >
-                    <ArrowUpRight size={16} />
-                  </a>
-                )}
-              </div>
-            ))}
-          </div>
-          {!events.length && complete && (
-            <p className="hint">No events today in the selected calendars.</p>
-          )}
-          {complete && rhythm.free.length > 0 && (
-            <div className="free-windows">
-              <span className="mono">Free slots</span>
-              {rhythm.free
-                .filter(([a, b]) => b - a >= 30 * 60_000)
-                .map(([a, b]) => (
-                  <span key={a}>
-                    {time(new Date(a).toISOString())} – {time(new Date(b).toISOString())}
-                  </span>
-                ))}
+              )}
+              {allDay.length > 0 && (
+                <div className="all-day-events">
+                  {allDay.map((e) => (
+                    <span key={e.id}>
+                      {e.title}
+                      <small>
+                        {e.calendarName ? `${e.calendarName} · ` : ''}All day{!e.busy ? ' · free' : ''}
+                      </small>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {timed.length > 0 && (
+                <div className="day-agenda">
+                  {timed.map((e) => (
+                    <div key={e.id} className={`agenda-event ${Date.parse(e.end) <= now.getTime() ? 'past' : ''}`}>
+                      <time>
+                        {time(e.start)}
+                        <span>{time(e.end)}</span>
+                      </time>
+                      <span className="agenda-dot" style={{ backgroundColor: e.calendarColor ?? 'var(--accent)' }} />
+                      <div>
+                        <strong>{e.title}</strong>
+                        {e.calendarName && <span className="event-calendar">{e.calendarName}</span>}
+                        {!e.busy && <span className="hint">Does not block your time</span>}
+                      </div>
+                      {e.url && (
+                        <a
+                          className="link-btn"
+                          href={e.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`Open ${e.title} in Google Calendar`}
+                        >
+                          <ArrowUpRight size={16} />
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!events.length && complete && <p className="hint">No events today in the selected calendars.</p>}
+              {complete && rhythm.free.length > 0 && (
+                <div className="free-windows">
+                  <span className="mono">Free slots</span>
+                  {rhythm.free
+                    .filter(([a, b]) => b - a >= 30 * 60_000)
+                    .map(([a, b]) => (
+                      <span key={a}>
+                        {time(new Date(a).toISOString())} – {time(new Date(b).toISOString())}
+                      </span>
+                    ))}
+                </div>
+              )}
             </div>
           )}
           <p className="calendar-freshness">Google Calendar · updated at {time(data.checkedAt!)}</p>
@@ -616,13 +663,8 @@ const RADAR_LABELS: Record<'jobs' | 'automata', Record<string, string>> = {
     a_tenter: 'Worth a try',
     interessante: 'Interesting',
     postule: 'Applied',
-    ecartee: 'Dismissed',
-    rejected: 'Not kept by AI',
     a_relire: 'To re-check',
-    pending: 'Awaiting sorting',
-    errors: 'Sorting errors',
-    prioritaires: 'Priority offers (within To review)',
-    duplicates: 'Duplicates excluded',
+    ecartee: 'Dismissed',
   },
   automata: {
     a_verifier: 'To check',
@@ -633,13 +675,29 @@ const RADAR_LABELS: Record<'jobs' | 'automata', Record<string, string>> = {
     ecartee: 'Dismissed',
   },
 };
+/**
+ * The rows the Job Radar card shows, in this order (Julien's choice, 13/11/2026). The other
+ * segments the radar sends (not kept by the AI, awaiting sorting, sorting errors) still add
+ * up to its total but stay off the card and out of its bar. Automata shows what it sends.
+ */
+export const JOB_RADAR_ROWS = ['a_voir', 'a_tenter', 'interessante', 'postule', 'a_relire', 'ecartee'] as const;
 const count = (n: number) => n.toLocaleString('en-GB');
+
+/** The rows a radar card lists. A kept job row the source did not send reads as unknown, never as zero. */
+export function radarRows(kind: 'jobs' | 'automata', segments: RadarSummary['segments']) {
+  if (kind === 'automata')
+    return segments.map((m) => ({ key: m.key, label: RADAR_LABELS.automata[m.key] ?? m.label, value: m.value as number | null }));
+  return JOB_RADAR_ROWS.map((key) => {
+    const m = segments.find((s) => s.key === key);
+    return { key, label: RADAR_LABELS.jobs[key]!, value: m ? m.value : null };
+  });
+}
 
 /** The figure a radar card leads with: offers to review for jobs, the total for Automata. */
 export function radarHeadline(kind: 'jobs' | 'automata', data: Pick<RadarSummary, 'total' | 'segments'>) {
   const toReview = kind === 'jobs' ? data.segments.find((m) => m.key === 'a_voir') : undefined;
-  if (toReview) return { value: toReview.value, label: `offer${toReview.value === 1 ? '' : 's'} to review`, total: data.total };
-  return { value: data.total, label: kind === 'jobs' ? 'unique offers in total' : 'companies (agencies excluded)', total: null };
+  if (toReview) return { value: toReview.value, label: `offer${toReview.value === 1 ? '' : 's'} to review` };
+  return { value: data.total, label: kind === 'jobs' ? 'unique offers in total' : 'companies (agencies excluded)' };
 }
 
 function RadarCard({
@@ -654,8 +712,8 @@ function RadarCard({
   loading: boolean;
 }) {
   const ready = data?.state === 'ready';
-  const label = (m: { key: string; label: string }) => RADAR_LABELS[kind][m.key] ?? m.label;
   const headline = ready ? radarHeadline(kind, data) : null;
+  const rows = ready ? radarRows(kind, data.segments) : [];
   return (
     <section className="radar-card" data-radar={kind} aria-label={title}>
       <div className="radar-card-head">
@@ -679,7 +737,6 @@ function RadarCard({
             <div>
               <strong>{headline.value === null ? '—' : count(headline.value)}</strong>
               <span>{headline.label}</span>
-              {headline.total !== null && <span className="radar-total">{count(headline.total)} unique offers in total</span>}
             </div>
             <div className="radar-new">
               <strong>+{data.new24h}</strong>
@@ -689,29 +746,24 @@ function RadarCard({
           <div
             className="radar-stack"
             role="img"
-            aria-label={data.segments.map((m) => `${label(m)}: ${m.value}`).join(', ')}
+            aria-label={rows.map((m) => `${m.label}: ${m.value ?? 'unknown'}`).join(', ')}
           >
-            {data.segments.map((m, i) =>
-              m.value > 0 ? <span key={m.key} className={`segment-${i % 7}`} style={{ flex: m.value }} /> : null,
+            {rows.map((m, i) =>
+              m.value ? <span key={m.key} className={`segment-${i % 7}`} style={{ flex: m.value }} /> : null,
             )}
           </div>
           <dl className="radar-breakdown">
-            {data.segments.map((m, i) => (
+            {rows.map((m, i) => (
               <div key={m.key}>
                 <dt>
                   <span className={`legend-dot segment-${i % 7}`} />
-                  {label(m)}
+                  {m.label}
                 </dt>
-                <dd>{count(m.value)}</dd>
+                <dd>{m.value === null ? '—' : count(m.value)}</dd>
               </div>
             ))}
           </dl>
-          {data.extra.map((m) => (
-            <p className="hint" key={m.key}>
-              {label(m)}: {count(m.value)}
-            </p>
-          ))}
-          <p className="calendar-freshness">Read only · updated at {time(data.checkedAt!)}</p>
+          <p className="calendar-freshness radar-freshness">Read only · updated at {time(data.checkedAt!)}</p>
         </>
       ) : (
         <div className="radar-empty">
