@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { Archive, ArrowRight, CalendarDays, CheckCheck, Download, FolderKanban, LayoutGrid, Search, Settings2, X } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { isCategoryId, OTHER, RESERVED_CATEGORY_IDS, type Category, type CategoryInfo } from '../../shared/categories';
+import { byCategory, isCategoryId, OTHER, RESERVED_CATEGORY_IDS, type Category, type CategoryInfo } from '../../shared/categories';
 import { extractUrl, hostOf, normalizeUrl } from '../../shared/text';
 import type { Capture, CaptureStatus } from '../../shared/types';
 import { Drawer } from '../components/Drawer';
@@ -91,7 +91,7 @@ export function Dashboard() {
               active={view.kind === 'category' && view.category === c.id}
               onClick={() => navigate(href({ view: c.id }))}
               label={c.name}
-              count={overview.data?.counts[c.id] ?? (overview.data ? 0 : undefined)}
+              count={byCategory(overview.data?.counts, c.id) ?? (overview.data ? 0 : undefined)}
             />
           ))}
           <hr className="side-rule" />
@@ -194,8 +194,8 @@ function Home({ onOpen }: { onOpen: (id: string) => void }) {
         <div className="sections">
           {categories.list.map((info) => {
             const c = info.id;
-            const count = data.counts[c] ?? 0;
-            const items = data.sections[c] ?? [];
+            const count = byCategory(data.counts, c) ?? 0;
+            const items = byCategory(data.sections, c) ?? [];
             return (
               <section key={c} className="section" {...catProps(info)} aria-labelledby={`sec-${c}`}>
                 <header className="section-header">

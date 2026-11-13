@@ -116,3 +116,11 @@ export function categoryIdFor(name: string, taken: Iterable<string>): Category {
     if (free(id)) return id;
   }
 }
+
+/**
+ * Reads a per-category value from a plain object keyed by category id. Own keys only: an id such
+ * as "constructor" must never reach Object.prototype.
+ */
+export function byCategory<T>(record: Record<string, T> | undefined, id: Category): T | undefined {
+  return record && Object.hasOwn(record, id) ? record[id] : undefined;
+}

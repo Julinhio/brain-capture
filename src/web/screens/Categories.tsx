@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Lock, Plus, Trash2 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
-import { MAX_CATEGORY_DESCRIPTION, MAX_CATEGORY_NAME, OTHER, type CategoryInfo } from '../../shared/categories';
+import { byCategory, MAX_CATEGORY_DESCRIPTION, MAX_CATEGORY_NAME, OTHER, type CategoryInfo } from '../../shared/categories';
 import { CategoryIcon } from '../components/CategoryIcon';
 import { api } from '../lib/api';
 import { catProps, useCategories } from '../lib/categories';
@@ -34,12 +34,12 @@ export function Categories() {
       <div className="category-editor-list">
         {categories.list.map((c) =>
           c.id === OTHER ? (
-            <OtherCard key={c.id} category={c} count={overview.data?.counts[c.id]} />
+            <OtherCard key={c.id} category={c} count={byCategory(overview.data?.counts, c.id)} />
           ) : (
             <CategoryCard
               key={`${c.id}:${c.name}:${c.description}`}
               category={c}
-              count={overview.data?.counts[c.id]}
+              count={byCategory(overview.data?.counts, c.id)}
               onChanged={refresh}
               disabled={!categories.query.isSuccess}
             />

@@ -254,6 +254,16 @@ describe('managing categories', () => {
     const { createElement } = await import('react');
     const { CategoryIcon } = await import('../src/web/components/CategoryIcon.js');
     expect(renderToString(createElement(CategoryIcon, { category: 'constructor' }))).toContain('<svg');
+    // Counts and sections read it as data: a number and a list, never Object's own constructor.
+    ctx.ai.nextClassification = { category: 'constructor', title: 'Plombier' };
+    await capture('Appeler le plombier pour la salle de bain');
+    ctx.ai.nextClassification = { category: 'jobs', title: 'Fake title' };
+    const overview = (await api('GET', '/api/overview')).json();
+    expect(overview.counts.constructor).toBe(1);
+    expect(overview.sections.constructor).toHaveLength(1);
+    const { byCategory } = await import('../src/shared/categories.js');
+    // An overview loaded before the category existed (another device added it meanwhile).
+    expect(byCategory({ jobs: [] as unknown[] }, 'constructor')).toBeUndefined();
   });
 
   it('an old backup without categories still restores, unknown categories under Other', async () => {

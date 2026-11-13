@@ -1,5 +1,5 @@
 import { and, desc, eq, gt, ilike, inArray, lt, ne, or, sql } from 'drizzle-orm';
-import { OTHER, type Category } from '../../shared/categories.js';
+import { byCategory, type Category } from '../../shared/categories.js';
 import { fallbackTitle } from '../../shared/text.js';
 import type { Capture, CaptureKind, CaptureStatus } from '../../shared/types.js';
 import type { Ai } from '../ai/types.js';
@@ -236,7 +236,7 @@ export async function getOverview(db: Db, ownerId: string, perCategory: number, 
   let done = 0;
   let archived = 0;
   for (const g of grouped) {
-    if (g.status === 'open') counts[g.category] = (counts[g.category] ?? 0) + g.n;
+    if (g.status === 'open') counts[g.category] = (byCategory(counts, g.category) ?? 0) + g.n;
     else if (g.status === 'done') done += g.n;
     else archived += g.n;
   }
