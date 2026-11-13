@@ -118,21 +118,24 @@ function Detail({ capture }: { capture: Capture }) {
           <button type="button" className="btn btn-primary" onClick={leave}>
             Back to history
           </button>
-        ) : capture.status === 'open' ? (
-          <>
-            <button type="button" className="btn btn-primary" onClick={() => setStatus('done')} disabled={update.isPending}>
-              <Check size={18} aria-hidden="true" /> Mark done
-            </button>
-            <button type="button" className="btn" onClick={() => setStatus('archived')} disabled={update.isPending}>
-              <Archive size={18} aria-hidden="true" /> Archive
-            </button>
-          </>
         ) : (
-          <button type="button" className="btn" onClick={() => setStatus('open')} disabled={update.isPending}>
-            <RotateCcw size={18} aria-hidden="true" /> Reopen
-          </button>
+          <DeleteCapture id={capture.id} onDeleted={leave} disabled={update.isPending}>
+            {capture.status === 'open' ? (
+              <>
+                <button type="button" className="btn btn-primary" onClick={() => setStatus('done')} disabled={update.isPending}>
+                  <Check size={18} aria-hidden="true" /> Mark done
+                </button>
+                <button type="button" className="btn" onClick={() => setStatus('archived')} disabled={update.isPending}>
+                  <Archive size={18} aria-hidden="true" /> Archive
+                </button>
+              </>
+            ) : (
+              <button type="button" className="btn" onClick={() => setStatus('open')} disabled={update.isPending}>
+                <RotateCcw size={18} aria-hidden="true" /> Reopen
+              </button>
+            )}
+          </DeleteCapture>
         )}
-        {!removed && <DeleteCapture id={capture.id} onDeleted={leave} disabled={update.isPending} />}
       </div>
     </main>
   );

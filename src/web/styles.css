@@ -285,10 +285,14 @@ a {
   border-color: transparent;
   color: var(--danger);
 }
+/* Destructive, but in the app's palette: a dark button with red text, not a filled block. */
 .btn-danger {
-  background: var(--danger);
-  border-color: transparent;
-  color: #fff;
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  color: var(--danger);
+}
+.btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 20%, var(--surface-2));
 }
 /* Delete stays quiet next to Archive: muted, borderless, red only on hover or once asked. */
 .btn-delete {
@@ -299,15 +303,24 @@ a {
 .btn-delete:hover:not(:disabled) {
   color: var(--danger);
 }
+/* An icon-only button, square, pushed to the end of its row. */
+.btn-icon {
+  flex: none;
+  width: 48px;
+  padding: 0;
+  margin-left: auto;
+}
 .delete-confirm {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+  width: 100%;
 }
 .delete-question {
+  margin-right: auto;
   font-size: 14px;
-  color: var(--danger);
+  font-weight: 500;
 }
 .btn-sm {
   min-height: 36px;
@@ -892,16 +905,26 @@ a {
 .bottom-bar {
   flex-wrap: wrap;
 }
-.bottom-bar .btn-delete {
-  flex: 0 0 auto;
-  padding: 0 12px;
+.bottom-bar .btn {
+  padding: 0 14px;
+  white-space: nowrap;
 }
+.bottom-bar .btn-icon {
+  flex: none;
+  padding: 0;
+}
+/* Phone: the question on its own line, then Cancel and Delete side by side, full width. */
 .bottom-bar .delete-confirm {
   flex: 1 1 100%;
-  justify-content: flex-end;
+  gap: 12px;
+}
+.bottom-bar .delete-question {
+  flex: 1 1 100%;
+  margin: 0;
 }
 .bottom-bar .delete-confirm .btn {
-  flex: 0 0 auto;
+  flex: 1;
+  min-height: 48px;
 }
 
 .step-dot {
@@ -1470,13 +1493,18 @@ a {
 }
 .drawer-foot {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   padding: 16px 24px;
   border-top: 1px solid var(--border);
 }
+.drawer-foot .btn {
+  white-space: nowrap;
+}
 .drawer-note {
-  margin: 0 0 0 auto;
+  flex: 1 1 100%;
+  margin: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

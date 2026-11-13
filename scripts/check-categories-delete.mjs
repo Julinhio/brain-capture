@@ -110,9 +110,20 @@ async function main() {
     await page.goto(`${base}/?view=everything&id=${doomed.id}`);
     const drawer = page.getByRole('dialog', { name: 'Capture detail' });
     await drawer.getByRole('button', { name: 'Archive' }).waitFor();
-    await drawer.getByRole('button', { name: 'Delete', exact: true }).click();
-    await drawer.getByText('Delete for good?').waitFor();
+    await page.waitForTimeout(500); // the drawer slides in
+    await page.screenshot({ path: '.shots/drawer-actions.png' });
+    await drawer.getByRole('button', { name: 'Delete this capture' }).click();
+    await drawer.getByText('Delete this capture for good?').waitFor();
+    // The question replaces the row: Mark done and Archive are out of the way meanwhile.
+    if (await drawer.getByRole('button', { name: 'Archive' }).count()) throw new Error('actions shown beside the question');
     await page.screenshot({ path: '.shots/drawer-delete-confirm.png' });
+    // Every button of the footer fits on one line, at a narrower window too.
+    for (const width of [1440, 1024]) {
+      await page.setViewportSize({ width, height: 900 });
+      const lines = await drawer.locator('.drawer-foot .btn').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)));
+      if (lines.some((h) => h > 50)) throw new Error('a footer button wraps at ' + width + ': ' + lines.join());
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 });
     await drawer.getByRole('button', { name: 'Delete', exact: true }).click();
     await drawer.waitFor({ state: 'detached' });
     if ((await page.request.get(`${base}/api/captures/${doomed.id}`)).status() !== 404) throw new Error('not deleted');
@@ -163,8 +174,9 @@ async function main() {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${base}/history?id=${phoneOne.id}`);
     await page.getByRole('button', { name: 'Archive' }).waitFor();
-    await page.getByRole('button', { name: 'Delete', exact: true }).click();
-    await page.getByText('Delete for good?').waitFor();
+    await page.screenshot({ path: '.shots/mobile-actions.png' });
+    await page.getByRole('button', { name: 'Delete this capture' }).click();
+    await page.getByText('Delete this capture for good?').waitFor();
     await page.screenshot({ path: '.shots/mobile-delete-confirm.png' });
     await page.getByRole('button', { name: 'Delete', exact: true }).click();
     await page.getByRole('heading', { name: 'History' }).waitFor();
