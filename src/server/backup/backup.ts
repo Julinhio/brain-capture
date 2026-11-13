@@ -182,26 +182,34 @@ async function restoreCategories(tx: Db, ownerId: string, items: ExportedCategor
   });
   const own = (id: string) => and(eq(categories.ownerId, ownerId), eq(categories.id, id));
   for (const c of renames) await tx.update(categories).set({ name: `restoring:${c.id}` }).where(own(c.id));
+  // Each try in its own savepoint: a name already taken fails that try only.
+  const attempt = (write: (step: Db) => Promise<unknown>) =>
+    tx
+      .transaction(async (step) => {
+        await write(step as unknown as Db);
+      })
+      .then(() => true)
+      .catch(() => false);
+  const fallbackNames = (name: string, id: string) => [name, `${name.slice(0, 29)} (restored)`, `${name.slice(0, 37 - id.length)} (${id})`];
   for (const c of items) {
     if (current.some((r) => r.id === c.id)) continue;
-    await tx
-      .insert(categories)
-      .values({ ownerId, id: c.id, ...values(c), color: c.color, position: c.position })
-      .onConflictDoNothing();
+    // A category the account still has may hold the same name (a starting one that was deleted
+    // in the backed-up account, then its name reused): the restored one keeps its id,
+    // description and captures under a marked name rather than being dropped.
+    for (const name of fallbackNames(values(c).name, c.id)) {
+      const ok = await attempt((step) =>
+        step.insert(categories).values({ ownerId, id: c.id, ...values(c), name, color: c.color, position: c.position }),
+      );
+      if (ok) break;
+    }
   }
   for (const c of renames) {
     const start = DEFAULT_CATEGORIES.find((d) => d.id === c.id)!;
     // The backup's name, else (taken by a category the account already had) the original one,
-    // else a name that cannot clash. Each try in its own savepoint.
+    // else a name that cannot clash.
     const tries = [values(c), { name: start.name, description: start.description }, { name: `${start.name} (${c.id})`, description: start.description }];
-    for (const attempt of tries) {
-      const ok = await tx
-        .transaction(async (step) => {
-          await step.update(categories).set({ ...attempt, updatedAt: new Date() }).where(own(c.id));
-        })
-        .then(() => true)
-        .catch(() => false);
-      if (ok) break;
+    for (const t of tries) {
+      if (await attempt((step) => step.update(categories).set({ ...t, updatedAt: new Date() }).where(own(c.id)))) break;
     }
   }
 }

@@ -12,6 +12,7 @@ const icons: Record<string, typeof Inbox> = {
 };
 
 export function CategoryIcon({ category }: { category: Category }) {
-  const Icon = icons[category] ?? Tag;
+  // Own keys only: an id such as "constructor" must not reach Object.prototype.
+  const Icon = Object.hasOwn(icons, category) ? icons[category]! : Tag;
   return <Icon className="category-icon" size={18} strokeWidth={1.7} aria-hidden="true" />;
 }

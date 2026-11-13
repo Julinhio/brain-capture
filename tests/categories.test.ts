@@ -222,6 +222,38 @@ describe('managing categories', () => {
     expect(restored.find((c: { id: string }) => c.id === 'learning')).toMatchObject({ name: 'Jobs', description: 'Now about jobs.' });
   });
 
+  it('restores a category whose name is held by a starting one, under a marked name, with its captures', async () => {
+    await createUser(ctx.db, 'categories-reuse@example.com');
+    const source = await login(ctx.app, 'categories-reuse@example.com');
+    // Jobs deleted, then its name reused by a new category holding captures.
+    await api('DELETE', '/api/categories/jobs', undefined, source);
+    await api('POST', '/api/categories', { name: 'Applications', description: 'Where I applied.' }, source);
+    await api('PATCH', '/api/categories/applications', { name: 'Jobs' }, source);
+    ctx.ai.nextClassification = { category: 'applications', title: 'Candidature Alan' };
+    const c = (await api('POST', '/api/captures', { clientId: newClientId(), kind: 'text', text: 'Candidature Alan envoyée' }, source)).json().capture;
+    ctx.ai.nextClassification = { category: 'jobs', title: 'Fake title' };
+    expect(c.category).toBe('applications');
+    const backup = (await api('GET', '/api/export', undefined, source)).json();
+    // Restored into a database that no longer has the capture (lost), for a fresh account.
+    await ctx.db.delete(captures).where(eq(captures.id, c.id));
+    await createUser(ctx.db, 'categories-reuse-restore@example.com');
+    const fresh = await login(ctx.app, 'categories-reuse-restore@example.com');
+    expect((await api('POST', '/api/import', backup, fresh)).statusCode).toBe(200);
+    const restored = (await api('GET', '/api/categories', undefined, fresh)).json().categories;
+    expect(restored.find((x: { id: string }) => x.id === 'applications')).toMatchObject({ name: 'Jobs (restored)', description: 'Where I applied.' });
+    const [back] = await ctx.db.select().from(captures).where(eq(captures.id, c.id));
+    expect(back).toMatchObject({ category: 'applications' });
+  });
+
+  it('a category id that is also an Object property ("constructor") is just a category', async () => {
+    const res = await api('POST', '/api/categories', { name: 'Constructor', description: 'Building work at home.' });
+    expect(res.json().category.id).toBe('constructor');
+    const { renderToString } = await import('react-dom/server');
+    const { createElement } = await import('react');
+    const { CategoryIcon } = await import('../src/web/components/CategoryIcon.js');
+    expect(renderToString(createElement(CategoryIcon, { category: 'constructor' }))).toContain('<svg');
+  });
+
   it('an old backup without categories still restores, unknown categories under Other', async () => {
     const backup = (await api('GET', '/api/export')).json();
     const { categories: _dropped, ...old } = backup;
