@@ -1,10 +1,11 @@
-import { and, asc, eq, inArray, or } from 'drizzle-orm';
+import { and, asc, eq, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { CATEGORY_ID_RE, DEFAULT_CATEGORIES, OTHER } from '../../shared/categories.js';
 import type { AppDeps } from '../app.js';
 import type { Db } from '../db/client.js';
 import { captures, categories, deletedCaptures, projects, projectCaptures, type CaptureRow } from '../db/schema.js';
+import { lockClientId } from '../captures/service.js';
 import { PROJECT_STATES } from '../../shared/dashboard.js';
 import { sendError } from '../http.js';
 
@@ -112,19 +113,18 @@ export async function importCaptures(
   const known = new Set(
     (await db.select({ id: categories.id }).from(categories).where(eq(categories.ownerId, ownerId))).map((c) => c.id),
   );
-  const gone = new Set<string>();
-  for (let i = 0; i < items.length; i += 1000) {
-    const ids = items.slice(i, i + 1000).map((c) => c.id);
-    const rows = await db
-      .select({ id: deletedCaptures.captureId })
-      .from(deletedCaptures)
-      .where(and(eq(deletedCaptures.ownerId, ownerId), inArray(deletedCaptures.captureId, ids)));
-    for (const r of rows) gone.add(r.id);
-  }
   let inserted = 0;
   let deleted = 0;
   for (const c of items) {
-    if (gone.has(c.id)) {
+    // Same lock as a deletion, then the tombstone check: a capture deleted while this restore
+    // runs is seen here, and one deleted before is never brought back.
+    await lockClientId(db, ownerId, c.clientId);
+    const [gone] = await db
+      .select({ id: deletedCaptures.captureId })
+      .from(deletedCaptures)
+      .where(and(eq(deletedCaptures.ownerId, ownerId), or(eq(deletedCaptures.captureId, c.id), eq(deletedCaptures.clientId, c.clientId))))
+      .limit(1);
+    if (gone) {
       deleted += 1;
       continue;
     }

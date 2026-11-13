@@ -49,7 +49,7 @@ export interface NewCapture {
  * lock, so an upload still running when the capture is deleted (a slow transcription, a retry
  * overlapping the first attempt) cannot store it again afterwards.
  */
-async function lockClientId(tx: Db, ownerId: string, clientId: string): Promise<void> {
+export async function lockClientId(tx: Db, ownerId: string, clientId: string): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`capture:${ownerId}:${clientId}`}))`);
 }
 
