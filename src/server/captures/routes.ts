@@ -1,16 +1,20 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { CATEGORIES } from '../../shared/categories.js';
+import { CATEGORY_ID_RE } from '../../shared/categories.js';
 import { extractUrl, normalizeUrl, removeLinkFromNote } from '../../shared/text.js';
 import type { CaptureStatus } from '../../shared/types.js';
 import { AiRejectedError, type AiUnavailableError } from '../ai/types.js';
 import type { AppDeps } from '../app.js';
+import { categoryExists } from './categories.js';
 import { captureContext, proposeEvent } from './event.js';
 import { sendError } from '../http.js';
 import {
   classifyCapture,
   decodeCursor,
+  deleteCapture,
   findByClientId,
+  findDeletedByClientId,
+  findDeletedById,
   getCapture,
   getOverview,
   insertCapture,
@@ -36,14 +40,14 @@ const patchSchema = z
   .object({
     title: z.string().trim().min(1).max(200).optional(),
     text: z.string().max(MAX_TEXT).optional(),
-    category: z.enum(CATEGORIES).optional(),
+    category: z.string().regex(CATEGORY_ID_RE).optional(),
     status: z.enum(['open', 'done', 'archived']).optional(),
   })
   .refine((p) => Object.keys(p).length > 0, { message: 'Nothing to update' });
 
 const listQuery = z.object({
   status: z.enum(['open', 'done', 'archived', 'all']).default('open'),
-  category: z.enum(CATEGORIES).optional(),
+  category: z.string().regex(CATEGORY_ID_RE).optional(),
   q: z.string().trim().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(100),
   before: z.string().max(80).optional(),
@@ -62,6 +66,8 @@ const voiceSchema = z.object({
   capturedAt: z.coerce.number().int().optional(),
   timeZone: z.string().max(100).optional(),
 });
+
+const DELETED_MESSAGE = 'This capture was deleted. It will not be saved again.';
 
 export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps): void {
   app.get('/api/captures', async (req, reply) => {
@@ -111,13 +117,21 @@ export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps)
     // A link note without the URL repeated reads better; keep whatever else was shared.
     const note = input.kind === 'link' && url ? removeLinkFromNote(text, url) : text;
 
-    const { row, created } = await insertCapture(db, req.user!.id, {
+    // Deleted for good (by hand, or once turned into a calendar event): a device that never got
+    // the answer to its first upload must not bring it back. 410 is final for the device.
+    if (await findDeletedByClientId(db, req.user!.id, input.clientId)) {
+      return sendError(reply, 410, 'capture_deleted', DELETED_MESSAGE);
+    }
+
+    const saved = await insertCapture(db, req.user!.id, {
       clientId: input.clientId,
       kind: input.kind,
       text: note,
       url,
       device: input.device ?? null,
     });
+    if (saved.deleted) return sendError(reply, 410, 'capture_deleted', DELETED_MESSAGE);
+    const { row, created } = saved;
     // The row is committed before the model is asked anything: a classification failure
     // can only leave the capture under Other, never lose it. An explicit calendar request is
     // read at the same time; that step never fails the save either.
@@ -152,6 +166,9 @@ export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps)
     // A retry of an upload that already went through: no second transcription, no duplicate.
     const existing = await findByClientId(db, req.user!.id, clientId);
     if (existing) return reply.code(200).send({ capture: toCapture(existing), created: false });
+    if (await findDeletedByClientId(db, req.user!.id, clientId)) {
+      return sendError(reply, 410, 'capture_deleted', DELETED_MESSAGE);
+    }
 
     if (!audio || audio.buffer.length === 0) return sendError(reply, 400, 'invalid_input', 'The recording is empty.');
     if (!/^(audio|video)\//.test(audio.mimeType)) return sendError(reply, 400, 'invalid_input', 'Unsupported audio format.');
@@ -177,7 +194,9 @@ export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps)
       return sendError(reply, 422, 'empty_transcription', 'No speech was detected in this recording.');
     }
 
-    const { row, created } = await insertCapture(db, req.user!.id, {
+    // Deleted while it was being transcribed (an overlapping retry of an upload that went
+    // through): the insert sees the tombstone under the same lock and stores nothing.
+    const saved = await insertCapture(db, req.user!.id, {
       clientId,
       kind: 'voice',
       text: transcript.trim(),
@@ -185,6 +204,8 @@ export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps)
       durationMs,
       device: device ?? null,
     });
+    if (saved.deleted) return sendError(reply, 410, 'capture_deleted', DELETED_MESSAGE);
+    const { row, created } = saved;
     const [final] = await Promise.all([
       row.classificationStatus === 'done' ? row : classifyCapture(db, ai, row),
       proposeEvent(db, ai, row, captureContext(capturedAt, timeZone), req.log),
@@ -197,8 +218,29 @@ export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps)
     if (!params.success) return sendError(reply, 404, 'not_found', 'Capture not found.');
     const patch = patchSchema.safeParse(req.body);
     if (!patch.success) return sendError(reply, 400, 'invalid_input', 'This change is not valid.');
-    const row = await updateCapture(db, req.user!.id, params.data.id, patch.data);
+    if (patch.data.category !== undefined && !(await categoryExists(db, req.user!.id, patch.data.category))) {
+      return sendError(reply, 400, 'invalid_input', 'This category no longer exists.');
+    }
+    let row;
+    try {
+      row = await updateCapture(db, req.user!.id, params.data.id, patch.data);
+    } catch (err) {
+      // The category was deleted between the check and the write (foreign key).
+      if ((err as { code?: string; cause?: { code?: string } }).code === '23503' || (err as { cause?: { code?: string } }).cause?.code === '23503')
+        return sendError(reply, 400, 'invalid_input', 'This category no longer exists.');
+      throw err;
+    }
     if (!row) return sendError(reply, 404, 'not_found', 'Capture not found.');
     return { capture: toCapture(row) };
+  });
+
+  // Deleted for good, with its project links and its calendar proposal. An event already in
+  // Google stays there. Repeating the request (lost answer) is harmless.
+  app.delete('/api/captures/:id', async (req, reply) => {
+    const params = idParams.safeParse(req.params);
+    if (!params.success) return sendError(reply, 404, 'not_found', 'Capture not found.');
+    if (await deleteCapture(db, req.user!.id, params.data.id)) return { deleted: true };
+    if (await findDeletedById(db, req.user!.id, params.data.id)) return { deleted: true };
+    return sendError(reply, 404, 'not_found', 'Capture not found.');
   });
 }

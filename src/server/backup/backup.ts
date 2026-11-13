@@ -1,10 +1,12 @@
+import { randomUUID } from 'node:crypto';
 import { and, asc, eq, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { CATEGORIES } from '../../shared/categories.js';
+import { CATEGORY_ID_RE, DEFAULT_CATEGORIES, OTHER } from '../../shared/categories.js';
 import type { AppDeps } from '../app.js';
 import type { Db } from '../db/client.js';
-import { captures, projects, projectCaptures, type CaptureRow } from '../db/schema.js';
+import { captures, categories, deletedCaptures, projects, projectCaptures, type CaptureRow } from '../db/schema.js';
+import { lockClientId } from '../captures/service.js';
 import { PROJECT_STATES } from '../../shared/dashboard.js';
 import { sendError } from '../http.js';
 
@@ -32,7 +34,8 @@ const exportedCapture = z.object({
   text: z.string().max(1_000_000),
   originalText: z.string().max(1_000_000),
   url: z.string().max(100_000).nullable(),
-  category: z.enum(CATEGORIES),
+  // Any id: a backup can name a category deleted since, which then restores under Other.
+  category: z.string().regex(CATEGORY_ID_RE),
   categorySource: z.enum(['auto', 'manual', 'fallback']),
   classificationStatus: z.enum(['pending', 'done', 'failed']),
   status: z.enum(['open', 'done', 'archived']),
@@ -53,6 +56,20 @@ const exportFile = z.object({
   // Additive v1 extension: old capture-only files remain restorable.
   projects: z.array(z.object({ id: z.uuid(), name: z.string().min(1).max(120), intention: z.string().max(2000), state: z.enum(PROJECT_STATES), nextStep: z.string().max(500), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime() })).max(100_000).default([]),
   projectLinks: z.array(z.object({ projectId: z.uuid(), captureId: z.uuid() })).max(100_000).default([]),
+  // Additive too: files from before editable categories have none, their captures use the
+  // original ids, which every account starts with.
+  categories: z
+    .array(
+      z.object({
+        id: z.string().regex(CATEGORY_ID_RE),
+        name: z.string().trim().min(1).max(200),
+        description: z.string().max(5000),
+        color: z.string().max(40).nullable(),
+        position: z.number().int(),
+      }),
+    )
+    .max(1000)
+    .default([]),
 });
 
 function toExported(row: CaptureRow): ExportedCapture {
@@ -86,11 +103,32 @@ export async function exportCaptures(db: Db, ownerId: string): Promise<ExportedC
 /**
  * Adds the captures that are missing and leaves everything else alone: an existing capture
  * (same id, or same clientId for this owner) is never overwritten, nothing is deleted.
- * Running the same file twice is therefore harmless.
+ * Running the same file twice is therefore harmless. A capture deleted for good since the
+ * backup stays deleted, and one whose category no longer exists lands in Other.
  */
-export async function importCaptures(db: Db, ownerId: string, items: ExportedCapture[]): Promise<{ inserted: number; skipped: number }> {
+export async function importCaptures(
+  db: Db,
+  ownerId: string,
+  items: ExportedCapture[],
+): Promise<{ inserted: number; skipped: number; deleted: number }> {
+  const known = new Set(
+    (await db.select({ id: categories.id }).from(categories).where(eq(categories.ownerId, ownerId))).map((c) => c.id),
+  );
   let inserted = 0;
+  let deleted = 0;
   for (const c of items) {
+    // Same lock as a deletion, then the tombstone check: a capture deleted while this restore
+    // runs is seen here, and one deleted before is never brought back.
+    await lockClientId(db, ownerId, c.clientId);
+    const [gone] = await db
+      .select({ id: deletedCaptures.captureId })
+      .from(deletedCaptures)
+      .where(and(eq(deletedCaptures.ownerId, ownerId), or(eq(deletedCaptures.captureId, c.id), eq(deletedCaptures.clientId, c.clientId))))
+      .limit(1);
+    if (gone) {
+      deleted += 1;
+      continue;
+    }
     const result = await db
       .insert(captures)
       .values({
@@ -103,7 +141,7 @@ export async function importCaptures(db: Db, ownerId: string, items: ExportedCap
         text: c.text,
         originalText: c.originalText,
         url: c.url,
-        category: c.category,
+        category: known.has(c.category) ? c.category : OTHER,
         categorySource: c.categorySource,
         classificationStatus: c.classificationStatus,
         classificationAttempts: 0,
@@ -119,7 +157,64 @@ export async function importCaptures(db: Db, ownerId: string, items: ExportedCap
       .returning({ id: captures.id });
     inserted += result.length;
   }
-  return { inserted, skipped: items.length - inserted };
+  return { inserted, skipped: items.length - inserted - deleted, deleted };
+}
+
+type ExportedCategory = z.infer<typeof exportFile>['categories'][number];
+
+/**
+ * Categories first, so the captures find theirs. A category already there (same id) is left as
+ * it is, with one exception: a starting category nobody has edited yet (a fresh account) takes
+ * the backup's name and description, so a restore after losing the database brings back the
+ * renamed ones, even when they swapped names with each other ("Jobs" ↔ "Learning").
+ * Names are unique per account, so this goes in three steps: the starting categories about to
+ * be renamed let go of their names, the missing categories are added, then the names are set.
+ */
+async function restoreCategories(tx: Db, ownerId: string, items: ExportedCategory[]): Promise<void> {
+  const current = await tx.select().from(categories).where(eq(categories.ownerId, ownerId));
+  const values = (c: ExportedCategory) => ({ name: c.name.slice(0, 40), description: c.description.slice(0, 400) });
+  const renames = items.filter((c) => {
+    const start = DEFAULT_CATEGORIES.find((d) => d.id === c.id);
+    const row = current.find((r) => r.id === c.id);
+    if (!start || !row || c.id === OTHER) return false;
+    const untouched = row.name === start.name && row.description === start.description;
+    const v = values(c);
+    return untouched && (v.name !== row.name || v.description !== row.description);
+  });
+  const own = (id: string) => and(eq(categories.ownerId, ownerId), eq(categories.id, id));
+  // Longer than any real name (40 characters at most, through the API and the import), so it
+  // cannot collide with one.
+  for (const c of renames) await tx.update(categories).set({ name: `restoring ${c.id} ${randomUUID()}` }).where(own(c.id));
+  // Each try in its own savepoint: a name already taken fails that try only.
+  const attempt = (write: (step: Db) => Promise<unknown>) =>
+    tx
+      .transaction(async (step) => {
+        await write(step as unknown as Db);
+      })
+      .then(() => true)
+      .catch(() => false);
+  const fallbackNames = (name: string, id: string) => [name, `${name.slice(0, 29)} (restored)`, `${name.slice(0, 37 - id.length)} (${id})`];
+  for (const c of items) {
+    if (current.some((r) => r.id === c.id)) continue;
+    // A category the account still has may hold the same name (a starting one that was deleted
+    // in the backed-up account, then its name reused): the restored one keeps its id,
+    // description and captures under a marked name rather than being dropped.
+    for (const name of fallbackNames(values(c).name, c.id)) {
+      const ok = await attempt((step) =>
+        step.insert(categories).values({ ownerId, id: c.id, ...values(c), name, color: c.color, position: c.position }),
+      );
+      if (ok) break;
+    }
+  }
+  for (const c of renames) {
+    const start = DEFAULT_CATEGORIES.find((d) => d.id === c.id)!;
+    // The backup's name, else (taken by a category the account already had) the original one,
+    // else a name that cannot clash.
+    const tries = [values(c), { name: start.name, description: start.description }, { name: `${start.name} (${c.id})`, description: start.description }];
+    for (const t of tries) {
+      if (await attempt((step) => step.update(categories).set({ ...t, updatedAt: new Date() }).where(own(c.id)))) break;
+    }
+  }
 }
 
 export function registerBackupRoutes(app: FastifyInstance, { db, config }: AppDeps): void {
@@ -132,6 +227,9 @@ export function registerBackupRoutes(app: FastifyInstance, { db, config }: AppDe
       appVersion: config.appVersion,
       captures: await exportCaptures(db, req.user!.id),
       projects: (await db.select().from(projects).where(eq(projects.ownerId, req.user!.id)).orderBy(asc(projects.createdAt), asc(projects.id))).map(({ ownerId: _owner, createdAt, updatedAt, ...p }) => ({ ...p, createdAt: createdAt.toISOString(), updatedAt: updatedAt.toISOString() })),
+      categories: (await db.select().from(categories).where(eq(categories.ownerId, req.user!.id)).orderBy(asc(categories.position), asc(categories.id))).map(
+        ({ id, name, description, color, position }) => ({ id, name, description, color, position }),
+      ),
       projectLinks: await db.select({ projectId: projectCaptures.projectId, captureId: projectCaptures.captureId }).from(projectCaptures)
         .innerJoin(projects, eq(projects.id, projectCaptures.projectId)).innerJoin(captures, eq(captures.id, projectCaptures.captureId))
         .where(and(eq(projects.ownerId, req.user!.id), eq(captures.ownerId, req.user!.id)))
@@ -150,6 +248,7 @@ export function registerBackupRoutes(app: FastifyInstance, { db, config }: AppDe
     if (!parsed.success) return sendError(reply, 400, 'invalid_input', 'This is not a Brain Capture backup file.');
     const ownerId = req.user!.id;
     const result = await db.transaction(async (tx) => {
+      await restoreCategories(tx as unknown as Db, ownerId, parsed.data.categories);
       const result = await importCaptures(tx as unknown as Db, ownerId, parsed.data.captures);
       for (const p of parsed.data.projects) {
         await tx.insert(projects).values({ ...p, ownerId, createdAt: new Date(p.createdAt), updatedAt: new Date(p.updatedAt) }).onConflictDoNothing();

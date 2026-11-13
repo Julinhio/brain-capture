@@ -1,9 +1,20 @@
 import { sql } from 'drizzle-orm';
-import { boolean, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
-import { CATEGORIES } from '../../shared/categories.js';
+import {
+  boolean,
+  foreignKey,
+  index,
+  integer,
+  jsonb,
+  pgEnum,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from 'drizzle-orm/pg-core';
 import type { CaptureEventState, EventDraft } from '../../shared/event.js';
 
-export const categoryEnum = pgEnum('category', CATEGORIES);
 export const captureKindEnum = pgEnum('capture_kind', ['voice', 'text', 'link']);
 export const captureStatusEnum = pgEnum('capture_status', ['open', 'done', 'archived']);
 export const categorySourceEnum = pgEnum('category_source', ['auto', 'manual', 'fallback']);
@@ -31,6 +42,27 @@ export const sessions = pgTable(
   (t) => [index('sessions_user_idx').on(t.userId)],
 );
 
+// Each owner's own list. The id never changes (renaming only touches the name), so a rename
+// moves no capture. Seeded with the starting list for every account by migration 0004 (a
+// trigger on users covers accounts created later). Other is never deleted.
+export const categories = pgTable(
+  'categories',
+  {
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    id: text('id').notNull(),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    color: text('color'),
+    position: integer('position').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.ownerId, t.id] }), uniqueIndex('categories_owner_name_idx').on(t.ownerId, sql`lower(${t.name})`)],
+);
+export type CategoryRow = typeof categories.$inferSelect;
+
 export const captures = pgTable(
   'captures',
   {
@@ -48,7 +80,9 @@ export const captures = pgTable(
     text: text('text').notNull(),
     originalText: text('original_text').notNull(),
     url: text('url'),
-    category: categoryEnum('category').notNull().default('other'),
+    // Always one of the owner's categories (foreign key below): deleting a category first moves
+    // its captures to Other, in the same transaction.
+    category: text('category').notNull().default('other'),
     categorySource: categorySourceEnum('category_source').notNull().default('fallback'),
     classificationStatus: classificationStatusEnum('classification_status').notNull().default('pending'),
     classificationAttempts: integer('classification_attempts').notNull().default(0),
@@ -68,6 +102,11 @@ export const captures = pgTable(
     index('captures_classification_idx')
       .on(t.classificationStatus)
       .where(sql`${t.classificationStatus} <> 'done'`),
+    foreignKey({
+      name: 'captures_owner_category_fk',
+      columns: [t.ownerId, t.category],
+      foreignColumns: [categories.ownerId, categories.id],
+    }),
   ],
 );
 
@@ -123,3 +162,29 @@ export const captureEvents = pgTable('capture_events', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index('capture_events_owner_idx').on(t.ownerId)]);
 export type CaptureEventRow = typeof captureEvents.$inferSelect;
+
+// What is left of a capture deleted for good: enough to keep it from coming back. A phone that
+// never got the answer to its upload still holds the capture and sends it again with the same
+// clientId; without this row it would be stored anew. A capture turned into a calendar event
+// keeps the event here, so a repeated confirmation answers with it instead of calling Google.
+export const deletedCaptures = pgTable(
+  'deleted_captures',
+  {
+    captureId: uuid('capture_id').primaryKey(),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    clientId: uuid('client_id').notNull(),
+    reason: text('reason').$type<'deleted' | 'calendar'>().notNull(),
+    calendarEvent: jsonb('calendar_event').$type<{
+      draft: EventDraft;
+      eventUrl: string | null;
+      googleEventId: string;
+      calendarId: string;
+      createdInCalendarAt: string;
+    } | null>(),
+    deletedAt: timestamp('deleted_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('deleted_captures_owner_client_idx').on(t.ownerId, t.clientId)],
+);
+export type DeletedCaptureRow = typeof deletedCaptures.$inferSelect;

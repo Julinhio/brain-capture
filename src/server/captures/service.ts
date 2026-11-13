@@ -1,10 +1,11 @@
 import { and, desc, eq, gt, ilike, inArray, lt, ne, or, sql } from 'drizzle-orm';
-import { CATEGORIES, type Category } from '../../shared/categories.js';
+import { byCategory, type Category } from '../../shared/categories.js';
 import { fallbackTitle } from '../../shared/text.js';
 import type { Capture, CaptureKind, CaptureStatus } from '../../shared/types.js';
 import type { Ai } from '../ai/types.js';
 import type { Db } from '../db/client.js';
-import { captures, type CaptureRow } from '../db/schema.js';
+import { captures, deletedCaptures, type CaptureRow, type DeletedCaptureRow } from '../db/schema.js';
+import { listCategories } from './categories.js';
 
 export const MAX_CLASSIFICATION_ATTEMPTS = 3;
 
@@ -43,7 +44,28 @@ export interface NewCapture {
  * Inserts once per (owner, clientId). A retry of an upload that already succeeded gets the
  * stored row back instead of a duplicate, which is what makes "retry" safe on the phone.
  */
-export async function insertCapture(db: Db, ownerId: string, input: NewCapture): Promise<{ row: CaptureRow; created: boolean }> {
+/**
+ * One capture per (owner, clientId) at a time: inserting and deleting take the same transaction
+ * lock, so an upload still running when the capture is deleted (a slow transcription, a retry
+ * overlapping the first attempt) cannot store it again afterwards.
+ */
+export async function lockClientId(tx: Db, ownerId: string, clientId: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`capture:${ownerId}:${clientId}`}))`);
+}
+
+export type InsertResult = { row: CaptureRow; created: boolean; deleted?: false } | { row: null; created: false; deleted: true };
+
+export async function insertCapture(db: Db, ownerId: string, input: NewCapture): Promise<InsertResult> {
+  return db.transaction(async (txn) => {
+    const tx = txn as unknown as Db;
+    await lockClientId(tx, ownerId, input.clientId);
+    // Deleted for good already: never stored again.
+    if (await findDeletedByClientId(tx, ownerId, input.clientId)) return { row: null, created: false, deleted: true } as const;
+    return insertLocked(tx, ownerId, input);
+  });
+}
+
+async function insertLocked(db: Db, ownerId: string, input: NewCapture): Promise<{ row: CaptureRow; created: boolean }> {
   const inserted = await db
     .insert(captures)
     .values({
@@ -64,6 +86,59 @@ export async function insertCapture(db: Db, ownerId: string, input: NewCapture):
   const existing = await findByClientId(db, ownerId, input.clientId);
   if (!existing) throw new Error('Capture conflict without an existing row');
   return { row: existing, created: false };
+}
+
+/** A capture deleted for good, looked up by the id the device gave it. */
+export async function findDeletedByClientId(db: Db, ownerId: string, clientId: string): Promise<DeletedCaptureRow | null> {
+  const [row] = await db
+    .select()
+    .from(deletedCaptures)
+    .where(and(eq(deletedCaptures.ownerId, ownerId), eq(deletedCaptures.clientId, clientId)))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function findDeletedById(db: Db, ownerId: string, captureId: string): Promise<DeletedCaptureRow | null> {
+  const [row] = await db
+    .select()
+    .from(deletedCaptures)
+    .where(and(eq(deletedCaptures.ownerId, ownerId), eq(deletedCaptures.captureId, captureId)))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Deletes a capture for good, with its project links and its calendar proposal (cascades),
+ * and leaves a tombstone so it cannot come back on its own: a device resending it gets a
+ * "deleted" answer instead of a new row. An event already in Google is not touched.
+ * Returns false when there was nothing to delete.
+ */
+export async function deleteCapture(
+  db: Db,
+  ownerId: string,
+  id: string,
+  reason: DeletedCaptureRow['reason'] = 'deleted',
+  calendarEvent: DeletedCaptureRow['calendarEvent'] = null,
+): Promise<boolean> {
+  return db.transaction(async (txn) => {
+    const tx = txn as unknown as Db;
+    const [target] = await tx
+      .select({ clientId: captures.clientId })
+      .from(captures)
+      .where(and(eq(captures.ownerId, ownerId), eq(captures.id, id)));
+    if (!target) return false;
+    await lockClientId(tx, ownerId, target.clientId);
+    const [row] = await tx
+      .delete(captures)
+      .where(and(eq(captures.ownerId, ownerId), eq(captures.id, id)))
+      .returning({ id: captures.id, clientId: captures.clientId });
+    if (!row) return false;
+    await tx
+      .insert(deletedCaptures)
+      .values({ captureId: row.id, ownerId, clientId: row.clientId, reason, calendarEvent })
+      .onConflictDoNothing();
+    return true;
+  });
 }
 
 export async function findByClientId(db: Db, ownerId: string, clientId: string): Promise<CaptureRow | null> {
@@ -133,6 +208,7 @@ export async function listCaptures(
 }
 
 export interface Overview {
+  /** One entry per category of the owner, open captures only. */
   counts: Record<Category, number>;
   done: number;
   archived: number;
@@ -155,18 +231,19 @@ export async function getOverview(db: Db, ownerId: string, perCategory: number, 
       and(eq(captures.ownerId, ownerId), eq(captures.status, 'open'), gt(captures.createdAt, new Date(now.getTime() - 86_400_000))),
     );
 
-  const counts = Object.fromEntries(CATEGORIES.map((c) => [c, 0])) as Record<Category, number>;
+  const ids = (await listCategories(db, ownerId)).map((c) => c.id);
+  const counts = Object.fromEntries(ids.map((c) => [c, 0])) as Record<Category, number>;
   let done = 0;
   let archived = 0;
   for (const g of grouped) {
-    if (g.status === 'open') counts[g.category] += g.n;
+    if (g.status === 'open') counts[g.category] = (byCategory(counts, g.category) ?? 0) + g.n;
     else if (g.status === 'done') done += g.n;
     else archived += g.n;
   }
 
   const sections = Object.fromEntries(
     await Promise.all(
-      CATEGORIES.map(async (category) => {
+      ids.map(async (category) => {
         const page = await listCaptures(db, ownerId, ['open'], { limit: perCategory, category });
         return [category, page.rows] as const;
       }),
@@ -192,12 +269,16 @@ export async function classifyCapture(db: Db, ai: Ai, row: CaptureRow): Promise<
   if (!attempt) return (await getCapture(db, row.ownerId, row.id)) ?? row;
 
   try {
-    const result = await ai.classify({ kind: attempt.kind, text: attempt.text, url: attempt.url });
+    // The owner's categories as they are now: a category added a minute ago is a valid answer.
+    const options = await listCategories(db, attempt.ownerId);
+    const result = await ai.classify({ kind: attempt.kind, text: attempt.text, url: attempt.url, categories: options });
+    // A category deleted while the model was answering would break the foreign key: the
+    // attempt then fails like any other and the sweeper asks again with the current list.
     const [updated] = await db
       .update(captures)
       .set({
         classificationStatus: 'done',
-        category: sql`case when ${captures.categorySource} = 'manual' then ${captures.category} else ${result.category}::category end`,
+        category: sql`case when ${captures.categorySource} = 'manual' then ${captures.category} else ${result.category} end`,
         categorySource: sql`case when ${captures.categorySource} = 'manual' then ${captures.categorySource} else 'auto'::category_source end`,
         title: sql`case when ${captures.titleManual} then ${captures.title} else ${result.title} end`,
       })

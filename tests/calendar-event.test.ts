@@ -16,7 +16,7 @@ import {
   insertGoogleEvent,
 } from '../src/server/captures/event.js';
 import { CALENDAR_SCOPES, canReadCalendars, safeReturnPath, seal } from '../src/server/dashboard/calendar.js';
-import { calendarConnections, captureEvents } from '../src/server/db/schema.js';
+import { calendarConnections, captureEvents, captures, deletedCaptures, projectCaptures, projects } from '../src/server/db/schema.js';
 import { draftProblem, zonedToUtc, type EventDraft } from '../src/shared/event.js';
 import { withAllDay, withStart } from '../src/web/components/EventCard.js';
 import { createUser, login, newClientId, setup, voicePayload, type TestContext } from './helpers.js';
@@ -424,6 +424,9 @@ describe('capture to calendar event, end to end', () => {
     expect(lost.statusCode).toBe(503);
     expect(lost.json()).toMatchObject({ error: 'calendar_unavailable' });
     expect(google.events.size).toBe(1);
+    // Not confirmed, so nothing is removed: the capture and its proposal are still there.
+    expect(await ctx.db.select().from(captures).where(eq(captures.id, c.id))).toHaveLength(1);
+    expect((await eventOf(c.id)).event.state).toBe('proposed');
 
     // Corrected after the failure, then a double tap on "Réessayer": two requests at once.
     const corrected = { ...edited, start: '2026-11-17T15:30', end: '2026-11-17T16:30' };
@@ -449,8 +452,12 @@ describe('capture to calendar event, end to end', () => {
       start: { dateTime: '2026-11-17T15:30:00', timeZone: PARIS },
       end: { dateTime: '2026-11-17T16:30:00', timeZone: PARIS },
     });
-    const [row] = await ctx.db.select().from(captureEvents).where(eq(captureEvents.captureId, c.id));
-    expect(row).toMatchObject({ state: 'created', calendarId: 'primary', googleEventId: googleEventId(c.id) });
+    // A calendar request is not a task: once the event is in Google, the capture is gone.
+    expect(a.json().captureDeleted).toBe(true);
+    expect(await ctx.db.select().from(captures).where(eq(captures.id, c.id))).toHaveLength(0);
+    expect(await ctx.db.select().from(captureEvents).where(eq(captureEvents.captureId, c.id))).toHaveLength(0);
+    const [left] = await ctx.db.select().from(deletedCaptures).where(eq(deletedCaptures.captureId, c.id));
+    expect(left).toMatchObject({ reason: 'calendar', calendarEvent: { calendarId: 'primary', googleEventId: googleEventId(c.id) } });
   });
 
   it('two devices confirming different versions at once: the card shows what Google kept', async () => {
@@ -468,6 +475,74 @@ describe('capture to calendar event, end to end', () => {
     expect(google.request.mock.calls.filter(([r]) => r.method === 'POST' || r.method === 'PUT')).toHaveLength(1);
     const kept = [...google.events.values()][0]!.location;
     expect((await eventOf(c.id)).event.draft.location).toBe(kept);
+  });
+
+  it('a confirmed calendar request leaves Brain Capture entirely, and cannot come back', async () => {
+    await connect(CALENDAR_SCOPES.join(' '));
+    const google = fakeGoogle();
+    vi.spyOn(OAuth2Client.prototype, 'request').mockImplementation(google.request as never);
+    const clientId = newClientId();
+    const c = await capture(DENTIST, { clientId });
+    const [project] = await ctx.db.insert(projects).values({ ownerId: owner, name: 'Santé' }).returning();
+    await ctx.db.insert(projectCaptures).values({ projectId: project!.id, captureId: c.id });
+    const before = (await ctx.app.inject({ url: '/api/overview', headers: { cookie } })).json();
+
+    const done = await confirm(c.id, (await eventOf(c.id)).event.draft);
+    expect(done.statusCode).toBe(200);
+    // The answer still carries the confirmation and the link, for the screen that asked.
+    expect(done.json()).toMatchObject({ captureDeleted: true, event: { state: 'created' } });
+    expect(done.json().event.eventUrl).toMatch(/^https:\/\/www\.google\.com\/calendar\/event/);
+
+    // Gone: no detail, no history, no category, no counter, no project link.
+    expect((await ctx.app.inject({ url: `/api/captures/${c.id}`, headers: { cookie } })).statusCode).toBe(404);
+    const all = (await ctx.app.inject({ url: '/api/captures?status=all&limit=200', headers: { cookie } })).json();
+    expect(all.captures.map((x: { id: string }) => x.id)).not.toContain(c.id);
+    const after = (await ctx.app.inject({ url: '/api/overview', headers: { cookie } })).json();
+    expect(sumCounts(after.counts)).toBe(sumCounts(before.counts) - 1);
+    expect(await ctx.db.select().from(projectCaptures).where(eq(projectCaptures.captureId, c.id))).toHaveLength(0);
+
+    // The phone never got the first answer and sends the capture again: refused, not stored.
+    const resend = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/captures',
+      headers: { cookie },
+      payload: { clientId, kind: 'text', text: DENTIST },
+    });
+    expect(resend.statusCode).toBe(410);
+    expect(resend.json()).toMatchObject({ error: 'capture_deleted' });
+    expect(await ctx.db.select().from(captures).where(eq(captures.clientId, clientId))).toHaveLength(0);
+
+    // Reopening the card later still shows what went to Google, without calling it again.
+    const calls = google.request.mock.calls.length;
+    expect(await eventOf(c.id)).toMatchObject({ captureDeleted: true, event: { state: 'created' } });
+    expect((await confirm(c.id, done.json().event.draft)).json()).toMatchObject({ captureDeleted: true });
+    expect(google.request.mock.calls.length).toBe(calls);
+    expect(google.events.size).toBe(1);
+  });
+
+  it('a dismissed calendar suggestion leaves an ordinary capture', async () => {
+    const c = await capture(DENTIST);
+    await ctx.app.inject({ method: 'PATCH', url: `/api/captures/${c.id}/event`, headers: { cookie }, payload: { state: 'dismissed' } });
+    const kept = await ctx.app.inject({ url: `/api/captures/${c.id}`, headers: { cookie } });
+    expect(kept.statusCode).toBe(200);
+    expect(kept.json().capture).toMatchObject({ status: 'open', text: DENTIST });
+    expect((await eventOf(c.id)).event.state).toBe('dismissed');
+  });
+
+  it('deleting a capture whose event is already in Google leaves the event alone', async () => {
+    await connect(CALENDAR_SCOPES.join(' '));
+    const google = fakeGoogle();
+    vi.spyOn(OAuth2Client.prototype, 'request').mockImplementation(google.request as never);
+    const c = await capture(DENTIST);
+    // Created before calendar requests stopped being kept (left as they were).
+    await ctx.db
+      .update(captureEvents)
+      .set({ state: 'created', googleEventId: googleEventId(c.id), calendarId: 'primary', createdInCalendarAt: new Date() })
+      .where(eq(captureEvents.captureId, c.id));
+    const res = await ctx.app.inject({ method: 'DELETE', url: `/api/captures/${c.id}`, headers: { cookie } });
+    expect(res.statusCode).toBe(200);
+    expect(google.request).not.toHaveBeenCalled();
+    expect(await ctx.db.select().from(captureEvents).where(eq(captureEvents.captureId, c.id))).toHaveLength(0);
   });
 
   it('an expired Google token surfaces as "reconnect", and reconnecting clears it', async () => {
@@ -562,3 +637,7 @@ describe('dashboard read access', () => {
     expect(canReadCalendars('')).toBe(false);
   });
 });
+
+function sumCounts(counts: Record<string, number>): number {
+  return Object.values(counts).reduce((a, b) => a + b, 0);
+}

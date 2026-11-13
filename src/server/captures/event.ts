@@ -21,8 +21,16 @@ import type { AppDeps } from '../app.js';
 import type { Config } from '../config.js';
 import { calendarClient, canWriteEvents, safeGoogleUrl } from '../dashboard/calendar.js';
 import type { Db } from '../db/client.js';
-import { calendarConnections, captureEvents, captures, type CaptureEventRow, type CaptureRow } from '../db/schema.js';
+import {
+  calendarConnections,
+  captureEvents,
+  captures,
+  type CaptureEventRow,
+  type CaptureRow,
+  type DeletedCaptureRow,
+} from '../db/schema.js';
 import { sendError } from '../http.js';
+import { deleteCapture, findDeletedById } from './service.js';
 
 /** Events go to the account's main calendar (Google's `primary` alias). */
 export const TARGET_CALENDAR = 'primary';
@@ -47,6 +55,19 @@ export function toCaptureEvent(row: CaptureEventRow): CaptureEvent {
     lastError: row.lastError ?? null,
     eventUrl: row.eventUrl,
     createdInCalendarAt: row.createdInCalendarAt?.toISOString() ?? null,
+  };
+}
+
+/** The event a capture turned into, read from what is left of the capture once deleted. */
+export function eventFromTombstone(row: DeletedCaptureRow): CaptureEvent | null {
+  if (row.reason !== 'calendar' || !row.calendarEvent) return null;
+  return {
+    state: 'created',
+    draft: row.calendarEvent.draft,
+    extraction: 'done',
+    lastError: null,
+    eventUrl: row.calendarEvent.eventUrl,
+    createdInCalendarAt: row.calendarEvent.createdInCalendarAt,
   };
 }
 
@@ -227,7 +248,11 @@ async function writeAccess(db: Db, config: Config, ownerId: string): Promise<Cal
   return canWriteEvents(connection.grantedScopes) ? 'ready' : 'reconnect';
 }
 
-export type ConfirmResult = { ok: true; row: CaptureEventRow } | ({ ok: false } & EventFailure);
+/**
+ * `captureDeleted`: the event is in Google and the capture is gone from Brain Capture (a
+ * calendar request is not a task). Its original words are in the event description.
+ */
+export type ConfirmResult = { ok: true; event: CaptureEvent; captureDeleted: boolean } | ({ ok: false } & EventFailure);
 
 // One confirmation at a time per capture, Google call included: two devices confirming
 // different versions at once would otherwise race, and the card could end up showing a
@@ -274,8 +299,16 @@ async function confirmNow(
     .select()
     .from(captureEvents)
     .where(and(eq(captureEvents.captureId, captureId), eq(captureEvents.ownerId, ownerId)));
-  if (!row) return { ok: false, status: 404, code: 'not_found', message: 'No calendar proposal for this capture.' };
-  if (row.state === 'created') return { ok: true, row };
+  if (!row) {
+    // Already turned into an event and removed (a double tap, or a retry after a lost answer):
+    // answer with that event, never call Google again.
+    const tombstone = await findDeletedById(db, ownerId, captureId);
+    const done = tombstone ? eventFromTombstone(tombstone) : null;
+    if (done) return { ok: true, event: done, captureDeleted: true };
+    return { ok: false, status: 404, code: 'not_found', message: 'No calendar proposal for this capture.' };
+  }
+  // Created before calendar requests stopped being kept as captures: left as it is.
+  if (row.state === 'created') return { ok: true, event: toCaptureEvent(row), captureDeleted: false };
   const problem = draftProblem(draft);
   if (problem) return { ok: false, status: 400, code: 'invalid_input', message: problem };
 
@@ -320,22 +353,30 @@ async function confirmNow(
     log?.warn({ status: httpStatus(err), code: failure.code, captureId }, 'calendar event creation failed');
     return fail(failure);
   }
-  const [saved] = await db
-    .update(captureEvents)
-    .set({
-      state: 'created',
-      // Exactly the version Google now holds.
-      draft,
-      calendarId: TARGET_CALENDAR,
-      googleEventId: created.id,
-      eventUrl: safeGoogleUrl(created.htmlLink),
-      lastError: null,
-      createdInCalendarAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(eq(captureEvents.captureId, captureId))
-    .returning();
-  return { ok: true, row: saved! };
+  // Google confirmed the event. Recording it and removing the capture happen in one
+  // transaction: either the capture is still there with its proposal (a retry then reaches the
+  // same Google event through its fixed id), or it is gone and the tombstone holds the event.
+  // There is no state in between where a second event could be created.
+  const calendarEvent = {
+    // Exactly the version Google now holds.
+    draft,
+    eventUrl: safeGoogleUrl(created.htmlLink),
+    googleEventId: created.id,
+    calendarId: TARGET_CALENDAR,
+    createdInCalendarAt: new Date().toISOString(),
+  };
+  await deleteCapture(db, ownerId, captureId, 'calendar', calendarEvent);
+  // Deleted by hand while Google was answering: the event exists all the same, say so.
+  const tombstone = await findDeletedById(db, ownerId, captureId);
+  const event = (tombstone && eventFromTombstone(tombstone)) ?? {
+    state: 'created' as const,
+    draft,
+    extraction: row.extraction,
+    lastError: null,
+    eventUrl: calendarEvent.eventUrl,
+    createdInCalendarAt: calendarEvent.createdInCalendarAt,
+  };
+  return { ok: true, event, captureDeleted: true };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -376,7 +417,13 @@ export function registerCaptureEventRoutes(app: FastifyInstance, { db, ai, confi
   app.get('/api/captures/:id/event', async (req, reply) => {
     const params = idParams.safeParse(req.params);
     if (!params.success) return sendError(reply, 404, 'not_found', 'Capture not found.');
-    return respond(req.user!.id, await ownedEvent(req.user!.id, params.data.id));
+    const row = await ownedEvent(req.user!.id, params.data.id);
+    if (!row) {
+      const tombstone = await findDeletedById(db, req.user!.id, params.data.id);
+      const event = tombstone ? eventFromTombstone(tombstone) : null;
+      if (event) return { event, access: await writeAccess(db, config, req.user!.id), captureDeleted: true } satisfies CaptureEventResponse;
+    }
+    return respond(req.user!.id, row);
   });
 
   app.post('/api/captures/:id/event', async (req, reply) => {
@@ -386,7 +433,11 @@ export function registerCaptureEventRoutes(app: FastifyInstance, { db, ai, confi
     if (!body.success) return sendError(reply, 400, 'invalid_input', 'Invalid event.');
     const result = await confirmEvent(db, config, req.user!.id, params.data.id, cleanDraft(body.data.draft), req.log);
     if (!result.ok) return sendError(reply, result.status, result.code, result.message);
-    return respond(req.user!.id, result.row);
+    return {
+      event: result.event,
+      access: await writeAccess(db, config, req.user!.id),
+      captureDeleted: result.captureDeleted,
+    } satisfies CaptureEventResponse;
   });
 
   // Dismiss or bring back a proposal, or keep unsent edits (before leaving for Google's

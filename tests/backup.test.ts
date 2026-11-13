@@ -70,7 +70,7 @@ describe('restore', () => {
       await createUser(fresh.db, 'julien@example.com');
       const freshCookie = await login(fresh.app, 'julien@example.com');
       const res = await fresh.app.inject({ method: 'POST', url: '/api/import', headers: { cookie: freshCookie }, payload: original });
-      expect(res.json()).toEqual({ inserted: 2, skipped: 0, total: 2 });
+      expect(res.json()).toEqual({ inserted: 2, skipped: 0, deleted: 0, total: 2 });
       const restored = (await fresh.app.inject({ method: 'GET', url: '/api/export', headers: { cookie: freshCookie } })).json();
       expect(restored.captures).toEqual(original.captures);
     } finally {
@@ -94,7 +94,7 @@ describe('restore', () => {
       await createUser(fresh.db, 'julien@example.com');
       const freshCookie = await login(fresh.app, 'julien@example.com');
       const imported = await fresh.app.inject({ method: 'POST', url: '/api/import', headers: { cookie: freshCookie }, payload: original });
-      expect(imported.json()).toEqual({ inserted: 1, skipped: 0, total: 1 });
+      expect(imported.json()).toEqual({ inserted: 1, skipped: 0, deleted: 0, total: 1 });
       const restored = (await fresh.app.inject({ method: 'GET', url: '/api/export', headers: { cookie: freshCookie } })).json();
       expect(restored.captures).toEqual(original.captures);
     } finally {
@@ -108,16 +108,16 @@ describe('restore', () => {
     await ctx.app.inject({ method: 'PATCH', url: `/api/captures/${a.id}`, headers: { cookie }, payload: { text: 'Changed after the backup' } });
 
     const res = await importAs(backup);
-    expect(res.json()).toEqual({ inserted: 0, skipped: 1, total: 1 });
+    expect(res.json()).toEqual({ inserted: 0, skipped: 1, deleted: 0, total: 1 });
     const [row] = await ctx.db.select().from(captures).where(eq(captures.id, a.id));
     expect(row!.text).toBe('Changed after the backup');
   });
 
-  it('brings back a capture deleted since the backup', async () => {
+  it('brings back a capture lost since the backup (gone from the database, not deleted in the app)', async () => {
     const a = await capture('Lost then restored');
     const backup = await exportAs();
     await ctx.db.delete(captures).where(eq(captures.id, a.id));
-    expect((await importAs(backup)).json()).toEqual({ inserted: 1, skipped: 0, total: 1 });
+    expect((await importAs(backup)).json()).toEqual({ inserted: 1, skipped: 0, deleted: 0, total: 1 });
     expect((await exportAs()).captures).toEqual(backup.captures);
   });
 
@@ -133,7 +133,7 @@ describe('restore', () => {
       exportedAt: new Date().toISOString(),
       captures: [{ ...(await exportAs()).captures[0], ...{ id: theirs.id, clientId: newClientId(), text: 'x', originalText: 'x', title: null, titleManual: false, url: null, category: 'other', categorySource: 'fallback', classificationStatus: 'done', status: 'open', durationMs: null, device: null, kind: 'text', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), doneAt: null, archivedAt: null } }],
     };
-    expect((await importAs(forged)).json()).toEqual({ inserted: 0, skipped: 1, total: 1 });
+    expect((await importAs(forged)).json()).toEqual({ inserted: 0, skipped: 1, deleted: 0, total: 1 });
     const [row] = await ctx.db.select().from(captures).where(eq(captures.id, theirs.id));
     expect(row!.text).toBe('Their private note');
     expect((await exportAs()).captures).toHaveLength(0);

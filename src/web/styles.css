@@ -285,6 +285,30 @@ a {
   border-color: transparent;
   color: var(--danger);
 }
+.btn-danger {
+  background: var(--danger);
+  border-color: transparent;
+  color: #fff;
+}
+/* Delete stays quiet next to Archive: muted, borderless, red only on hover or once asked. */
+.btn-delete {
+  border-color: transparent;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.btn-delete:hover:not(:disabled) {
+  color: var(--danger);
+}
+.delete-confirm {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.delete-question {
+  font-size: 14px;
+  color: var(--danger);
+}
 .btn-sm {
   min-height: 36px;
   padding: 0 12px;
@@ -377,6 +401,7 @@ a {
   flex: none;
   color: var(--cat-color, var(--cat-other));
 }
+[data-cat] { --cat-color: var(--cat-other); }
 [data-cat='jobs'] { --cat-color: var(--cat-jobs); }
 [data-cat='automata'] { --cat-color: var(--cat-automata); }
 [data-cat='projects'] { --cat-color: var(--cat-projects); }
@@ -864,6 +889,20 @@ a {
 .bottom-bar .btn {
   flex: 1;
 }
+.bottom-bar {
+  flex-wrap: wrap;
+}
+.bottom-bar .btn-delete {
+  flex: 0 0 auto;
+  padding: 0 12px;
+}
+.bottom-bar .delete-confirm {
+  flex: 1 1 100%;
+  justify-content: flex-end;
+}
+.bottom-bar .delete-confirm .btn {
+  flex: 0 0 auto;
+}
 
 .step-dot {
   width: 18px;
@@ -1028,6 +1067,32 @@ a {
 }
 .side-title {
   margin: 20px 10px 6px;
+}
+.side-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.side-manage {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin: 14px 4px 0 0;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.side-manage:hover,
+.side-manage[aria-current="page"] {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.side-manage:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .side-link {
   display: flex;
@@ -1448,6 +1513,25 @@ a {
 .event-card .sheet-actions { margin-top: 0; }
 .event-card .sheet-actions .btn { white-space: nowrap; }
 .event-card .sheet-actions .btn-ghost { flex: 0 0 auto; }
+.event-handoff { margin: 10px 0 0; }
 .event-ok { color: var(--success); }
 .event-dismissed { margin-top: 16px; }
 .event-card .link-btn { padding: 0; font-size: inherit; color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+
+/* ---------- Categories editor ---------- */
+.categories-page { max-width: 760px; }
+.category-editor-list { display: grid; gap: 14px; }
+.category-editor { padding: 18px 20px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
+.category-editor-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.category-editor-head h2 { margin: 0; font-size: 16px; }
+.category-name { flex: 1; min-width: 0; }
+.category-name .input { min-height: 40px; font-weight: 600; }
+.category-fixed { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; }
+.category-description { display: grid; gap: 6px; margin-top: 10px; }
+.category-description .textarea { min-height: 76px; }
+.category-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.category-actions > .hint { margin: 0 auto 0 0; }
+.category-actions .btn-delete { margin-right: auto; }
+.category-new { margin-top: 22px; border-style: dashed; }
+.category-new-title { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; }
+@media (max-width: 959px) { .side-title-row { flex-shrink: 0; order: 99; }.side-manage { margin: 6px 0 0; width: 40px; height: 40px; } }

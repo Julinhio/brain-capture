@@ -116,7 +116,7 @@ export function createGroqAi(options: GroqOptions): Ai {
         'Content-Type': 'application/json',
       })) as { choices?: { message?: { content?: unknown } }[] };
       const content = data.choices?.[0]?.message?.content;
-      const result = typeof content === 'string' ? parseClassifyResponse(content) : null;
+      const result = typeof content === 'string' ? parseClassifyResponse(content, input.categories) : null;
       if (!result) throw new AiUnavailableError('Groq classification returned an unusable answer');
       return result;
     },

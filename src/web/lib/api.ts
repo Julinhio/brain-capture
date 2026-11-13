@@ -1,5 +1,5 @@
 import type { ApiError, ApiErrorCode, Capture, CaptureStatus, Me } from '../../shared/types';
-import type { Category } from '../../shared/categories';
+import type { Category, CategoryInfo } from '../../shared/categories';
 import type { CalendarDay, Project, ProjectState, RadarSummary, TodayData } from '../../shared/dashboard';
 import type { CaptureEventResponse, EventDraft } from '../../shared/event';
 
@@ -22,7 +22,7 @@ export class RequestError extends Error {
     this.name = 'RequestError';
   }
 
-  /** False only when sending the same thing again can never work (invalid content). */
+  /** False only when sending the same thing again can never work (invalid content, deleted). */
   get retryable(): boolean {
     return this.code === 'network' || this.status >= 500 || this.status === 429 || this.status === 401;
   }
@@ -136,6 +136,13 @@ export const api = {
   },
   updateCapture: (id: string, patch: { title?: string; text?: string; category?: Category; status?: CaptureStatus }) =>
     request<{ capture: Capture }>('PATCH', `/api/captures/${id}`, patch).then((r) => r.capture),
+  deleteCapture: (id: string) => request<{ deleted: true }>('DELETE', `/api/captures/${id}`),
+  categories: () => request<{ categories: CategoryInfo[] }>('GET', '/api/categories').then((r) => r.categories),
+  createCategory: (input: { name: string; description: string }) =>
+    request<{ category: CategoryInfo }>('POST', '/api/categories', input).then((r) => r.category),
+  updateCategory: (id: string, patch: { name?: string; description?: string }) =>
+    request<{ category: CategoryInfo }>('PATCH', `/api/categories/${id}`, patch).then((r) => r.category),
+  deleteCategory: (id: string) => request<{ archived: number }>('DELETE', `/api/categories/${id}`),
 };
 
 // Whisper picks the decoder from the file extension, so it has to match the container.

@@ -7,10 +7,18 @@ Quand une capture demande explicitement un ajout à l’agenda (« mets dans mon
 tiroir desktop montrent une carte « Ajouter à l’agenda ». Ses champs sont modifiables :
 titre, toute la journée, début, fin, fuseaux, lieu. Une ligne de contrôle écrit le jour en
 toutes lettres (« mar. 17 nov. · 15:00 → 16:00 ») pour repérer d’un coup d’œil un mauvais
-jour. Rien n’est envoyé à Google avant le bouton. Ensuite la carte affiche « Dans ton
-agenda » et un lien vers l’événement Google. La capture elle-même n’est jamais modifiée.
+jour. Rien n’est envoyé à Google avant le bouton.
 
-« Ignorer » replie la carte ; « Afficher » la rouvre.
+**Une demande d’agenda n’est pas une tâche** (décision de Julien, 13/11/2026). Une fois
+l’événement créé dans Google, la capture est supprimée de Brain Capture : plus d’historique,
+de catégorie, de Today ni de compteur, et ses liens aux projets partent avec elle. La
+transcription d’origine est dans la description de l’événement, rien n’est perdu. Juste
+après la création, l’écran garde la confirmation (« In your calendar ») et le lien vers
+l’événement, avec une phrase qui dit que la note a quitté Brain Capture ; les actions sur la
+capture (terminer, archiver, supprimer, catégorie) disparaissent.
+
+« Dismiss » (Ignorer) replie la carte et la capture reste une capture normale ; « Show » la
+rouvre.
 
 ## Détection
 
@@ -60,6 +68,16 @@ La transcription d’origine (`originalText`) va dans la description de l’év�
 - Les corrections faites dans la carte sont enregistrées avant de partir vers l’écran de
   consentement Google, et retrouvées au retour.
 - Une fois l’événement créé, un nouvel appui ne contacte plus Google.
+- La suppression de la capture n’intervient qu’après la réponse de Google, et dans la même
+  transaction que l’enregistrement de l’événement : soit la capture est encore là avec sa
+  proposition (une relance retombe sur le même événement Google, par son id fixe), soit elle
+  est supprimée et sa « pierre tombale » (`deleted_captures`) garde l’événement créé. Aucun
+  état intermédiaire ne permet d’en créer un second. Une confirmation répétée ensuite
+  (double appui, réponse perdue) répond avec cet événement sans appeler Google.
+- Le téléphone qui n’aurait pas reçu la réponse à l’envoi de la capture et la renverrait
+  reçoit un 410 : elle n’est pas recréée (voir la suppression dans le README).
+- Les événements créés avant ce changement restent attachés à leur capture, qui n’est pas
+  supprimée rétroactivement : le bouton Delete permet de les retirer à la main.
 - Deux confirmations simultanées de la même capture (deux appareils) passent l’une après
   l’autre dans le serveur ; la carte garde la version que Google a reçue. Ce verrou est en
   mémoire : il suppose un seul processus serveur, ce qui est le cas sur Railway.
@@ -100,12 +118,16 @@ déclarer chez Google est le sous-domaine complet `brain-capture-production-8fa2
 ## Sauvegarde
 
 Les propositions d’agenda ne font pas partie de l’export JSON. Une capture restaurée
-garde son texte mais pas sa carte ; l’événement, lui, reste dans Google.
+garde son texte mais pas sa carte ; l’événement, lui, reste dans Google. Une capture devenue
+événement n’est plus dans les sauvegardes suivantes, et l’import d’une sauvegarde plus
+ancienne ne la fait pas revenir.
 
 ## Vérifier
 
 - `npm test` : `tests/calendar-event.test.ts` couvre le filtre, les dates relatives dans le
   fuseau du téléphone, les fuseaux et l’heure d’été, la règle de fin, l’absence de doublon
-  (double tap, réponse perdue, relance), les erreurs Google et le retour après reconnexion.
+  (double tap, réponse perdue, relance), les erreurs Google et le retour après reconnexion,
+  la suppression de la capture après création (listes, compteurs, liens aux projets, renvoi
+  du téléphone refusé, pas de second appel à Google) et la carte ignorée qui garde la capture.
 - `npx tsx --env-file=<fichier avec GROQ_API_KEY> scripts/eval-event.ts` : extraction réelle
   par Groq sur des phrases types (dentiste, anglais, vol Paris → Lisbonne, Da Nang…).

@@ -15,10 +15,10 @@ import {
   Unplug,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { CATEGORIES, CATEGORY_LABELS } from '../../shared/categories';
 import { PROJECT_LABELS, type CalendarDay, type CalendarEvent, type RadarSummary } from '../../shared/dashboard';
 import { CategoryIcon } from '../components/CategoryIcon';
 import { api } from '../lib/api';
+import { catProps, useCategories } from '../lib/categories';
 import { navigate, useSearchParam } from '../lib/router';
 
 function useClock() {
@@ -76,6 +76,7 @@ export function Today({ onOpen }: { onOpen: (id: string) => void }) {
     refetchInterval: 300_000,
   });
   const radars = useQuery({ queryKey: ['radars'], queryFn: api.radars, refetchInterval: 60_000 });
+  const categories = useCategories();
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects, refetchInterval: 60_000 });
   const allProjects = projects.data ?? today.data?.projects ?? [];
   const active = allProjects.filter((p) => p.state === 'active');
@@ -287,14 +288,14 @@ export function Today({ onOpen }: { onOpen: (id: string) => void }) {
           </p>
         )}
         <div className="yesterday-grid">
-          {CATEGORIES.map((category) => {
+          {categories.list.map(({ id: category }) => {
             const notes = today.data?.yesterday.captures.filter((c) => c.category === category) ?? [];
             if (!notes.length) return null;
             return (
-              <div key={category} className="yesterday-group" data-cat={category}>
+              <div key={category} className="yesterday-group" {...catProps(categories.info(category))}>
                 <h3>
                   <CategoryIcon category={category} />
-                  {CATEGORY_LABELS[category]}
+                  {categories.info(category).name}
                   <span className="mono">{notes.length}</span>
                 </h3>
                 {notes.map((c) => (

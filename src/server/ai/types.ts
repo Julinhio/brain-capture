@@ -1,10 +1,12 @@
-import type { Category } from '../../shared/categories.js';
+import type { Category, CategoryInfo } from '../../shared/categories.js';
 import type { CaptureKind } from '../../shared/types.js';
 
 export interface ClassifyInput {
   kind: CaptureKind;
   text: string;
   url: string | null;
+  /** The owner's categories at the time of the call; the answer must be one of them. */
+  categories: readonly CategoryInfo[];
 }
 
 export interface ClassifyResult {

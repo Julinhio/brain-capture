@@ -43,6 +43,8 @@ export type ApiErrorCode =
   /** Google refused because the connection expired or lacks the right: reconnect. */
   | 'calendar_reconnect'
   | 'calendar_unavailable'
+  /** The capture was deleted for good: a device still holding it must drop it. */
+  | 'capture_deleted'
   | 'internal';
 
 export interface ApiError {

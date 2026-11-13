@@ -11,6 +11,7 @@ import { sharedToCapture, type SharedData } from '../../shared/share';
 import { navigate, useSearchParam } from '../lib/router';
 import { clockTime, formatDuration, relativeTime } from '../lib/time';
 import { useRecentCaptures } from '../lib/useCaptures';
+import { catProps, useCategories } from '../lib/categories';
 import { MAX_RECORDING_MS, useRecorder, type RecorderError, type Recording } from '../lib/useRecorder';
 
 type Mode =
@@ -70,6 +71,7 @@ export function CaptureHome({ share }: { share?: SharedData } = {}) {
     composeParam === 'text' || composeParam === 'link' ? { name: 'compose', kind: composeParam } : { name: 'home' },
   );
   const recent = useRecentCaptures(3);
+  const categories = useCategories();
   const pending = usePendingItems();
   const blocked = pending.find((i) => i.blocked);
   // The capture the screen is following. A save that finishes after Julien moved on to a
@@ -335,7 +337,7 @@ export function CaptureHome({ share }: { share?: SharedData } = {}) {
           {recent.isError && <p className="empty">Could not load your captures. Check your connection.</p>}
           {recent.isSuccess && latest.length === 0 && <p className="empty">Nothing yet. Your first capture will show up here.</p>}
           {latest.map((c) => (
-            <button key={c.id} type="button" className="list-item" data-cat={c.category} onClick={() => navigate(`/history?id=${c.id}`)}>
+            <button key={c.id} type="button" className="list-item" {...catProps(categories.info(c.category))} onClick={() => navigate(`/history?id=${c.id}`)}>
               <CategoryIcon category={c.category} />
               <span className="grow">{c.title ?? c.text}</span>
               <span className="meta">{relativeTime(c.createdAt)}</span>
