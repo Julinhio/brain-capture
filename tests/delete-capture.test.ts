@@ -84,6 +84,31 @@ describe('deleting a capture for good', () => {
     expect(await ctx.db.select().from(captures).where(eq(captures.clientId, clientId))).toHaveLength(0);
   });
 
+  it('an upload still being transcribed when the capture is deleted does not store it again', async () => {
+    const clientId = newClientId();
+    const fields = { clientId, durationMs: '3000' };
+    const first = await voicePayload(fields, new Uint8Array([1, 2, 3]));
+    const saved = await ctx.app.inject({ method: 'POST', url: '/api/captures/voice', headers: { cookie, ...first.headers }, payload: first.payload });
+    expect(saved.statusCode).toBe(201);
+    // The phone lost the answer and retried while the first upload was still running: the retry
+    // found nothing stored yet and is now held in transcription. The row is taken out of its way
+    // to recreate that moment, then the deletion lands while it transcribes.
+    let release!: () => void;
+    ctx.ai.transcribeGate = new Promise<void>((r) => (release = r));
+    const db = ctx.db;
+    const retryBody = await voicePayload(fields, new Uint8Array([1, 2, 3]));
+    await db.delete(captures).where(eq(captures.clientId, clientId));
+    const retry = ctx.app.inject({ method: 'POST', url: '/api/captures/voice', headers: { cookie, ...retryBody.headers }, payload: retryBody.payload });
+    while (ctx.ai.transcribeCalls < 2) await new Promise((r) => setTimeout(r, 10));
+    // The deletion lands (its tombstone) while the retry is still transcribing.
+    await db.insert(deletedCaptures).values({ captureId: saved.json().capture.id, ownerId: owner, clientId, reason: 'deleted' });
+    release();
+    ctx.ai.transcribeGate = null;
+    const res = await retry;
+    expect(res.statusCode).toBe(410);
+    expect(await db.select().from(captures).where(eq(captures.clientId, clientId))).toHaveLength(0);
+  });
+
   it('a sorting retry or a late classification does not bring it back', async () => {
     ctx.ai.failClassify = true;
     const c = await create('Sorting failed, retried later');

@@ -123,13 +123,15 @@ export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps)
       return sendError(reply, 410, 'capture_deleted', DELETED_MESSAGE);
     }
 
-    const { row, created } = await insertCapture(db, req.user!.id, {
+    const saved = await insertCapture(db, req.user!.id, {
       clientId: input.clientId,
       kind: input.kind,
       text: note,
       url,
       device: input.device ?? null,
     });
+    if (saved.deleted) return sendError(reply, 410, 'capture_deleted', DELETED_MESSAGE);
+    const { row, created } = saved;
     // The row is committed before the model is asked anything: a classification failure
     // can only leave the capture under Other, never lose it. An explicit calendar request is
     // read at the same time; that step never fails the save either.
@@ -192,7 +194,9 @@ export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps)
       return sendError(reply, 422, 'empty_transcription', 'No speech was detected in this recording.');
     }
 
-    const { row, created } = await insertCapture(db, req.user!.id, {
+    // Deleted while it was being transcribed (an overlapping retry of an upload that went
+    // through): the insert sees the tombstone under the same lock and stores nothing.
+    const saved = await insertCapture(db, req.user!.id, {
       clientId,
       kind: 'voice',
       text: transcript.trim(),
@@ -200,6 +204,8 @@ export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps)
       durationMs,
       device: device ?? null,
     });
+    if (saved.deleted) return sendError(reply, 410, 'capture_deleted', DELETED_MESSAGE);
+    const { row, created } = saved;
     const [final] = await Promise.all([
       row.classificationStatus === 'done' ? row : classifyCapture(db, ai, row),
       proposeEvent(db, ai, row, captureContext(capturedAt, timeZone), req.log),

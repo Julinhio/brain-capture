@@ -21,8 +21,12 @@ export class FakeAi implements Ai {
   /** Set to simulate the provider refusing the file itself (e.g. Groq 413). */
   rejectTranscribe: string | null = null;
 
+  /** Awaited inside transcribe: lets a test act while an upload is still being transcribed. */
+  transcribeGate: Promise<void> | null = null;
+
   async transcribe() {
     this.transcribeCalls += 1;
+    if (this.transcribeGate) await this.transcribeGate;
     if (this.rejectTranscribe !== null) {
       throw new AiRejectedError('Groq refused', { status: 413, message: this.rejectTranscribe });
     }

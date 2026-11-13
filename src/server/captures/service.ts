@@ -44,7 +44,28 @@ export interface NewCapture {
  * Inserts once per (owner, clientId). A retry of an upload that already succeeded gets the
  * stored row back instead of a duplicate, which is what makes "retry" safe on the phone.
  */
-export async function insertCapture(db: Db, ownerId: string, input: NewCapture): Promise<{ row: CaptureRow; created: boolean }> {
+/**
+ * One capture per (owner, clientId) at a time: inserting and deleting take the same transaction
+ * lock, so an upload still running when the capture is deleted (a slow transcription, a retry
+ * overlapping the first attempt) cannot store it again afterwards.
+ */
+async function lockClientId(tx: Db, ownerId: string, clientId: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`capture:${ownerId}:${clientId}`}))`);
+}
+
+export type InsertResult = { row: CaptureRow; created: boolean; deleted?: false } | { row: null; created: false; deleted: true };
+
+export async function insertCapture(db: Db, ownerId: string, input: NewCapture): Promise<InsertResult> {
+  return db.transaction(async (txn) => {
+    const tx = txn as unknown as Db;
+    await lockClientId(tx, ownerId, input.clientId);
+    // Deleted for good already: never stored again.
+    if (await findDeletedByClientId(tx, ownerId, input.clientId)) return { row: null, created: false, deleted: true } as const;
+    return insertLocked(tx, ownerId, input);
+  });
+}
+
+async function insertLocked(db: Db, ownerId: string, input: NewCapture): Promise<{ row: CaptureRow; created: boolean }> {
   const inserted = await db
     .insert(captures)
     .values({
@@ -99,7 +120,14 @@ export async function deleteCapture(
   reason: DeletedCaptureRow['reason'] = 'deleted',
   calendarEvent: DeletedCaptureRow['calendarEvent'] = null,
 ): Promise<boolean> {
-  return db.transaction(async (tx) => {
+  return db.transaction(async (txn) => {
+    const tx = txn as unknown as Db;
+    const [target] = await tx
+      .select({ clientId: captures.clientId })
+      .from(captures)
+      .where(and(eq(captures.ownerId, ownerId), eq(captures.id, id)));
+    if (!target) return false;
+    await lockClientId(tx, ownerId, target.clientId);
     const [row] = await tx
       .delete(captures)
       .where(and(eq(captures.ownerId, ownerId), eq(captures.id, id)))

@@ -159,6 +159,53 @@ export async function importCaptures(
   return { inserted, skipped: items.length - inserted - deleted, deleted };
 }
 
+type ExportedCategory = z.infer<typeof exportFile>['categories'][number];
+
+/**
+ * Categories first, so the captures find theirs. A category already there (same id) is left as
+ * it is, with one exception: a starting category nobody has edited yet (a fresh account) takes
+ * the backup's name and description, so a restore after losing the database brings back the
+ * renamed ones, even when they swapped names with each other ("Jobs" ↔ "Learning").
+ * Names are unique per account, so this goes in three steps: the starting categories about to
+ * be renamed let go of their names, the missing categories are added, then the names are set.
+ */
+async function restoreCategories(tx: Db, ownerId: string, items: ExportedCategory[]): Promise<void> {
+  const current = await tx.select().from(categories).where(eq(categories.ownerId, ownerId));
+  const values = (c: ExportedCategory) => ({ name: c.name.slice(0, 40), description: c.description.slice(0, 400) });
+  const renames = items.filter((c) => {
+    const start = DEFAULT_CATEGORIES.find((d) => d.id === c.id);
+    const row = current.find((r) => r.id === c.id);
+    if (!start || !row || c.id === OTHER) return false;
+    const untouched = row.name === start.name && row.description === start.description;
+    const v = values(c);
+    return untouched && (v.name !== row.name || v.description !== row.description);
+  });
+  const own = (id: string) => and(eq(categories.ownerId, ownerId), eq(categories.id, id));
+  for (const c of renames) await tx.update(categories).set({ name: `restoring:${c.id}` }).where(own(c.id));
+  for (const c of items) {
+    if (current.some((r) => r.id === c.id)) continue;
+    await tx
+      .insert(categories)
+      .values({ ownerId, id: c.id, ...values(c), color: c.color, position: c.position })
+      .onConflictDoNothing();
+  }
+  for (const c of renames) {
+    const start = DEFAULT_CATEGORIES.find((d) => d.id === c.id)!;
+    // The backup's name, else (taken by a category the account already had) the original one,
+    // else a name that cannot clash. Each try in its own savepoint.
+    const tries = [values(c), { name: start.name, description: start.description }, { name: `${start.name} (${c.id})`, description: start.description }];
+    for (const attempt of tries) {
+      const ok = await tx
+        .transaction(async (step) => {
+          await step.update(categories).set({ ...attempt, updatedAt: new Date() }).where(own(c.id));
+        })
+        .then(() => true)
+        .catch(() => false);
+      if (ok) break;
+    }
+  }
+}
+
 export function registerBackupRoutes(app: FastifyInstance, { db, config }: AppDeps): void {
   app.get('/api/export', async (req, reply) => {
     const exportedAt = new Date().toISOString();
@@ -190,27 +237,7 @@ export function registerBackupRoutes(app: FastifyInstance, { db, config }: AppDe
     if (!parsed.success) return sendError(reply, 400, 'invalid_input', 'This is not a Brain Capture backup file.');
     const ownerId = req.user!.id;
     const result = await db.transaction(async (tx) => {
-      // Categories first, so the captures find theirs. A category already there (same id, or
-      // same name under another id) is left as it is, with one exception: a starting category
-      // nobody has edited yet (a fresh account) takes the backup's name and description, so a
-      // restore after losing the database brings back the renamed ones.
-      for (const c of parsed.data.categories) {
-        const values = { name: c.name.slice(0, 40), description: c.description.slice(0, 400) };
-        const [added] = await tx
-          .insert(categories)
-          .values({ ownerId, id: c.id, ...values, color: c.color, position: c.position })
-          .onConflictDoNothing()
-          .returning({ id: categories.id });
-        const start = DEFAULT_CATEGORIES.find((d) => d.id === c.id);
-        if (added || !start || c.id === OTHER) continue;
-        await tx.transaction(async (step) => {
-          // Its own savepoint: a name already taken by another category only skips this one.
-          await step
-            .update(categories)
-            .set({ ...values, updatedAt: new Date() })
-            .where(and(eq(categories.ownerId, ownerId), eq(categories.id, c.id), eq(categories.name, start.name), eq(categories.description, start.description)));
-        }).catch(() => undefined);
-      }
+      await restoreCategories(tx as unknown as Db, ownerId, parsed.data.categories);
       const result = await importCaptures(tx as unknown as Db, ownerId, parsed.data.captures);
       for (const p of parsed.data.projects) {
         await tx.insert(projects).values({ ...p, ownerId, createdAt: new Date(p.createdAt), updatedAt: new Date(p.updatedAt) }).onConflictDoNothing();

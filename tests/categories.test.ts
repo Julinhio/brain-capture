@@ -205,6 +205,23 @@ describe('managing categories', () => {
     expect(restored.find((c: { id: string }) => c.id === 'jobs')).toMatchObject({ name: 'Career', description: 'Job search and career moves.' });
   });
 
+  it('restores starting categories that swapped names with each other', async () => {
+    await createUser(ctx.db, 'categories-swap@example.com');
+    const swapper = await login(ctx.app, 'categories-swap@example.com');
+    // Jobs ↔ Learning through a temporary name, as the API allows.
+    await api('PATCH', '/api/categories/jobs', { name: 'Temp' }, swapper);
+    await api('PATCH', '/api/categories/learning', { name: 'Jobs', description: 'Now about jobs.' }, swapper);
+    await api('PATCH', '/api/categories/jobs', { name: 'Learning', description: 'Now about learning.' }, swapper);
+    const backup = (await api('GET', '/api/export', undefined, swapper)).json();
+
+    await createUser(ctx.db, 'categories-swap-restore@example.com');
+    const fresh = await login(ctx.app, 'categories-swap-restore@example.com');
+    expect((await api('POST', '/api/import', backup, fresh)).statusCode).toBe(200);
+    const restored = (await api('GET', '/api/categories', undefined, fresh)).json().categories;
+    expect(restored.find((c: { id: string }) => c.id === 'jobs')).toMatchObject({ name: 'Learning', description: 'Now about learning.' });
+    expect(restored.find((c: { id: string }) => c.id === 'learning')).toMatchObject({ name: 'Jobs', description: 'Now about jobs.' });
+  });
+
   it('an old backup without categories still restores, unknown categories under Other', async () => {
     const backup = (await api('GET', '/api/export')).json();
     const { categories: _dropped, ...old } = backup;
