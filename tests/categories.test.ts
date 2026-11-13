@@ -216,6 +216,8 @@ describe('managing categories', () => {
 
     await createUser(ctx.db, 'categories-swap-restore@example.com');
     const fresh = await login(ctx.app, 'categories-swap-restore@example.com');
+    // A category in the destination with any name, including one that looks like a staging name.
+    await api('POST', '/api/categories', { name: 'restoring:jobs', description: '' }, fresh);
     expect((await api('POST', '/api/import', backup, fresh)).statusCode).toBe(200);
     const restored = (await api('GET', '/api/categories', undefined, fresh)).json().categories;
     expect(restored.find((c: { id: string }) => c.id === 'jobs')).toMatchObject({ name: 'Learning', description: 'Now about learning.' });

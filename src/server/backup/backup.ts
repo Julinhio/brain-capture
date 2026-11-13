@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { and, asc, eq, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -181,7 +182,9 @@ async function restoreCategories(tx: Db, ownerId: string, items: ExportedCategor
     return untouched && (v.name !== row.name || v.description !== row.description);
   });
   const own = (id: string) => and(eq(categories.ownerId, ownerId), eq(categories.id, id));
-  for (const c of renames) await tx.update(categories).set({ name: `restoring:${c.id}` }).where(own(c.id));
+  // Longer than any real name (40 characters at most, through the API and the import), so it
+  // cannot collide with one.
+  for (const c of renames) await tx.update(categories).set({ name: `restoring ${c.id} ${randomUUID()}` }).where(own(c.id));
   // Each try in its own savepoint: a name already taken fails that try only.
   const attempt = (write: (step: Db) => Promise<unknown>) =>
     tx
