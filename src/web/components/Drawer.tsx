@@ -72,29 +72,26 @@ function DrawerActions({ capture, onDeleted }: { capture: Capture; onDeleted: ()
   const set = (status: Capture['status']) => update.mutate({ id: capture.id, patch: { status } });
   return (
     <div className="drawer-foot">
-      {capture.status === 'open' ? (
-        <>
-          <button type="button" className="btn btn-primary" onClick={() => set('done')} disabled={update.isPending}>
-            <Check size={18} aria-hidden="true" /> Mark done
+      <DeleteCapture id={capture.id} onDeleted={onDeleted} disabled={update.isPending}>
+        {capture.status === 'open' ? (
+          <>
+            <button type="button" className="btn btn-primary" onClick={() => set('done')} disabled={update.isPending}>
+              <Check size={18} aria-hidden="true" /> Mark done
+            </button>
+            <button type="button" className="btn" onClick={() => set('archived')} disabled={update.isPending}>
+              <Archive size={18} aria-hidden="true" /> Archive
+            </button>
+          </>
+        ) : (
+          <button type="button" className="btn" onClick={() => set('open')} disabled={update.isPending}>
+            <RotateCcw size={18} aria-hidden="true" /> Reopen
           </button>
-          <button type="button" className="btn" onClick={() => set('archived')} disabled={update.isPending}>
-            <Archive size={18} aria-hidden="true" /> Archive
-          </button>
-        </>
-      ) : (
-        <button type="button" className="btn" onClick={() => set('open')} disabled={update.isPending}>
-          <RotateCcw size={18} aria-hidden="true" /> Reopen
-        </button>
-      )}
-      <DeleteCapture id={capture.id} onDeleted={onDeleted} disabled={update.isPending} />
-      {update.isError ? (
-        <span className="field-error drawer-note" role="alert">
+        )}
+      </DeleteCapture>
+      {update.isError && (
+        <p className="field-error drawer-note" role="alert">
           Not changed. {update.error.message}
-        </span>
-      ) : (
-        <span className="hint drawer-note">
-          {capture.status === 'done' ? 'Marked done.' : capture.status === 'archived' ? 'Archived.' : 'Nothing here is mandatory.'}
-        </span>
+        </p>
       )}
     </div>
   );
