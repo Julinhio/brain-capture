@@ -6,15 +6,15 @@
 import { pathToFileURL } from 'node:url';
 import { createGroqAi } from '../src/server/ai/groq.js';
 import type { ClassifyInput } from '../src/server/ai/types.js';
-import type { Category } from '../src/shared/categories.js';
+import { DEFAULT_CATEGORIES, type Category } from '../src/shared/categories.js';
 
-interface Case extends ClassifyInput {
+interface Case extends Omit<ClassifyInput, 'categories'> {
   expected: Category;
   /** A second answer that would also be fine for a genuinely ambiguous capture. */
   acceptable?: Category;
 }
 
-const CASES: Case[] = [
+export const CASES: Case[] = [
   // Jobs
   { kind: 'link', text: 'Automation Lead chez Qonto', url: 'https://www.welcometothejungle.com/fr/companies/qonto/jobs/automation-lead', expected: 'jobs' },
   { kind: 'voice', text: "Relancer la recruteuse de Doctolib demain, l'appel s'est bien passé, lui envoyer le dashboard NPS comme exemple.", url: null, expected: 'jobs' },
@@ -70,7 +70,7 @@ async function main(): Promise<void> {
     if (i > 0) await new Promise((r) => setTimeout(r, delayMs));
     const t0 = Date.now();
     try {
-      const r = await ai.classify(c);
+      const r = await ai.classify({ ...c, categories: DEFAULT_CATEGORIES });
       const ok = r.category === c.expected;
       const fine = ok || r.category === c.acceptable;
       if (ok) exact += 1;

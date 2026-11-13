@@ -2,8 +2,9 @@ import { Archive, Check, RotateCcw, X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import type { Capture } from '../../shared/types';
 import { clockTime, formatDuration } from '../lib/time';
-import { useCapture, useUpdateCapture } from '../lib/useCaptures';
+import { useCapture, useRemovedCapture, useUpdateCapture } from '../lib/useCaptures';
 import { CaptureView } from './CaptureView';
+import { DeleteCapture } from './DeleteCapture';
 
 const KIND_HEADER = { voice: 'Voice note', text: 'Note', link: 'Link' } as const;
 const DEVICE_LABEL: Record<string, string> = { android: 'from Android', ios: 'from iPhone', desktop: 'from desktop' };
@@ -14,6 +15,7 @@ const DEVICE_LABEL: Record<string, string> = { android: 'from Android', ios: 'fr
  */
 export function Drawer({ id, onClose }: { id: string; onClose: () => void }) {
   const capture = useCapture(id);
+  const removed = useRemovedCapture(id);
   const closeRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -49,10 +51,10 @@ export function Drawer({ id, onClose }: { id: string; onClose: () => void }) {
         </div>
         <div className="drawer-body">
           {capture.isPending && <p className="hint">Loading…</p>}
-          {capture.isError && <p className="field-error">This capture could not be loaded.</p>}
+          {capture.isError && !removed && <p className="field-error">This capture could not be loaded.</p>}
           {capture.data && <CaptureView key={capture.data.id} capture={capture.data} onChange={() => undefined} inlineCategories />}
         </div>
-        {capture.data && <DrawerActions capture={capture.data} />}
+        {capture.data && !removed && <DrawerActions capture={capture.data} onDeleted={onClose} />}
       </aside>
     </>
   );
@@ -65,7 +67,7 @@ function headerLine(c: Capture): string {
   return parts.join(' · ');
 }
 
-function DrawerActions({ capture }: { capture: Capture }) {
+function DrawerActions({ capture, onDeleted }: { capture: Capture; onDeleted: () => void }) {
   const update = useUpdateCapture();
   const set = (status: Capture['status']) => update.mutate({ id: capture.id, patch: { status } });
   return (
@@ -84,6 +86,7 @@ function DrawerActions({ capture }: { capture: Capture }) {
           <RotateCcw size={18} aria-hidden="true" /> Reopen
         </button>
       )}
+      <DeleteCapture id={capture.id} onDeleted={onDeleted} disabled={update.isPending} />
       {update.isError ? (
         <span className="field-error drawer-note" role="alert">
           Not changed. {update.error.message}

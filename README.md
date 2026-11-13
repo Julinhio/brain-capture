@@ -30,6 +30,8 @@ npm run build
 
 `scripts/eval-event.ts` does the same for calendar requests (« mets dans mon agenda… »): it checks the event the card would propose, see `docs/calendar-events.md`.
 
+`scripts/eval-new-category.ts` creates a category in an isolated in-memory instance and checks the real classifier sorts into it (same key, same cost).
+
 `scripts/eval-classify.ts` runs the real classifier on representative captures (needs a Groq key, costs a fraction of a cent):
 
 ```bash
@@ -42,6 +44,16 @@ npx tsx --env-file=<file with GROQ_API_KEY> scripts/eval-classify.ts
 2. The server stores it once per `(owner, clientId)`: a retry after a lost response returns the stored capture instead of a duplicate.
 3. Only then is the model asked for a category and title. If that fails, the capture stays under Other and a server-side sweep retries up to three times. A category or title set by hand is never overwritten.
 4. The device removes its local copy only after the server confirms. "Saved" is never shown before that.
+
+## Deleting a capture
+
+Archive keeps a capture; **Delete** (next to Archive, in the desktop drawer and the phone's capture view, with a confirmation) removes it for good, with its project links and its calendar suggestion. An event already in Google Calendar is not touched. A small tombstone (`deleted_captures`: ids only, no content) keeps it from coming back: a phone resending it after a lost answer gets `410 capture_deleted` and drops its copy, the classification sweep has nothing left to retry, and restoring an older backup skips it.
+
+A calendar request is not a task: once its event is created in Google, the capture is deleted the same way (`docs/calendar-events.md`).
+
+## Categories
+
+Editable in the app (name and a description of what goes in each); the classifier reads the descriptions, so a new category needs no code change. Other is fixed. Deleting a category archives its captures under Other. Details: `docs/categories.md`.
 
 Known limits: retries run while the app is open (on launch, when the connection comes back, then with backoff up to every 30 s). Clearing the browser's site data removes captures still waiting on the device. Accepted limits and later work: `docs/future-improvements.md`.
 
@@ -61,6 +73,10 @@ Each script drives Chromium (`playwright-core`, pinned to the locally installed 
 | `check-voice-browser.mjs` | Real MediaRecorder audio through Groq to "Saved"; needs Groq |
 | `check-share.mjs` | A share opened at `/share` is saved once (run on the Vite dev server to cover StrictMode replays); if storage fails, the shared content reopens prefilled instead of being lost |
 | `check-desktop-bar.mjs` | Desktop quick bar and search: storage failure, double Enter, background save, refusals, line breaks, drawer errors |
+| `check-today.mjs` | Today: My day collapsed by default and remembered once expanded, both radar cards with six rows and the same height |
+| `check-categories-delete.mjs` | Categories created, renamed and deleted from the app; Delete with confirmation in the drawer and on the phone; the calendar hand-off removing the capture |
+
+Without Playwright's own Chromium, `BROWSER_CHANNEL=chrome` (or `msedge`) runs `check-today.mjs` and `check-categories-delete.mjs` on an installed browser.
 
 ## Backup and restore
 

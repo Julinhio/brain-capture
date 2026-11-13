@@ -1,12 +1,14 @@
 import { ArrowLeft, Archive, Check, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
-import { CATEGORIES, CATEGORY_LABELS, type Category } from '../../shared/categories';
+import type { Category } from '../../shared/categories';
 import type { Capture, CaptureStatus } from '../../shared/types';
 import { CaptureView } from '../components/CaptureView';
 import { CategoryIcon } from '../components/CategoryIcon';
+import { DeleteCapture } from '../components/DeleteCapture';
+import { catProps, useCategories } from '../lib/categories';
 import { navigate, useSearchParam } from '../lib/router';
 import { relativeTime } from '../lib/time';
-import { useCapture, useCapturePages, useUpdateCapture } from '../lib/useCaptures';
+import { useCapture, useCapturePages, useRemovedCapture, useUpdateCapture } from '../lib/useCaptures';
 import { versionLabel } from '../version';
 import { TopBar } from './CaptureHome';
 
@@ -23,6 +25,7 @@ function HistoryList() {
   const [category, setCategory] = useState<Category | 'all'>('all');
   const pages = useCapturePages(status, category);
   const visible = pages.data?.pages.flatMap((p) => p.captures) ?? [];
+  const { list, info } = useCategories();
 
   return (
     <main className="screen history-screen">
@@ -33,10 +36,10 @@ function HistoryList() {
         <button type="button" className="cat-option" aria-pressed={category === 'all'} onClick={() => setCategory('all')}>
           All
         </button>
-        {CATEGORIES.map((c) => (
-          <button key={c} type="button" className="cat-option" data-cat={c} aria-pressed={category === c} onClick={() => setCategory(c)}>
-            <CategoryIcon category={c} />
-            {CATEGORY_LABELS[c]}
+        {list.map((c) => (
+          <button key={c.id} type="button" className="cat-option" {...catProps(c)} aria-pressed={category === c.id} onClick={() => setCategory(c.id)}>
+            <CategoryIcon category={c.id} />
+            {c.name}
           </button>
         ))}
       </div>
@@ -52,7 +55,7 @@ function HistoryList() {
         {pages.isError && <p className="empty">Could not load your captures. Check your connection.</p>}
         {pages.isSuccess && visible.length === 0 && <p className="empty">Nothing here.</p>}
         {visible.map((c) => (
-          <button key={c.id} type="button" className="list-item" data-cat={c.category} onClick={() => navigate(`/history?id=${c.id}`)}>
+          <button key={c.id} type="button" className="list-item" {...catProps(info(c.category))} onClick={() => navigate(`/history?id=${c.id}`)}>
             <CategoryIcon category={c.category} />
             <span className="grow">{c.title ?? c.text}</span>
             <span className="meta">
@@ -81,6 +84,7 @@ function DetailLoader({ id }: { id: string }) {
   const capture = useCapture(id);
   if (capture.isPending) return null;
   if (!capture.data) {
+    // Opened from an old link after it was deleted, or deleted on another device.
     return (
       <main className="screen">
         <TopBar />
@@ -93,7 +97,9 @@ function DetailLoader({ id }: { id: string }) {
 
 function Detail({ capture }: { capture: Capture }) {
   const update = useUpdateCapture();
+  const removed = useRemovedCapture(capture.id);
   const setStatus = (status: CaptureStatus) => update.mutate({ id: capture.id, patch: { status } });
+  const leave = () => navigate('/history', { replace: true });
 
   return (
     <main className="screen">
@@ -108,7 +114,11 @@ function Detail({ capture }: { capture: Capture }) {
       </header>
       <CaptureView key={capture.id} capture={capture} onChange={() => undefined} />
       <div className="bottom-bar">
-        {capture.status === 'open' ? (
+        {removed ? (
+          <button type="button" className="btn btn-primary" onClick={leave}>
+            Back to history
+          </button>
+        ) : capture.status === 'open' ? (
           <>
             <button type="button" className="btn btn-primary" onClick={() => setStatus('done')} disabled={update.isPending}>
               <Check size={18} aria-hidden="true" /> Mark done
@@ -122,6 +132,7 @@ function Detail({ capture }: { capture: Capture }) {
             <RotateCcw size={18} aria-hidden="true" /> Reopen
           </button>
         )}
+        {!removed && <DeleteCapture id={capture.id} onDeleted={leave} disabled={update.isPending} />}
       </div>
     </main>
   );

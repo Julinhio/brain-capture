@@ -15,7 +15,7 @@ export async function importInBatches(base, cookie, backup, size = batchSize()) 
   for (let i = 0; i < backup.captures.length; i += size) slices.push(backup.captures.slice(i, i + size));
   if (slices.length === 0) slices.push([]); // An empty backup is still validated by the server.
 
-  const totals = { inserted: 0, skipped: 0, total: 0, batches: 0 };
+  const totals = { inserted: 0, skipped: 0, deleted: 0, total: 0, batches: 0 };
   for (const captures of slices) {
     const res = await fetch(`${base}/api/import`, {
       method: 'POST',
@@ -26,6 +26,8 @@ export async function importInBatches(base, cookie, backup, size = batchSize()) 
     const r = await res.json();
     totals.inserted += r.inserted;
     totals.skipped += r.skipped;
+    // Captures deleted for good since the backup: they stay deleted (older servers omit it).
+    totals.deleted += r.deleted ?? 0;
     totals.total += r.total;
     totals.batches += 1;
   }

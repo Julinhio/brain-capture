@@ -116,6 +116,12 @@ export function send(item: OutboxItem): Promise<SendResult> {
         capture = await upload(item);
       } catch (err) {
         const e = err instanceof RequestError ? err : new RequestError('network', 'No connection right now.', 0);
+        if (e.code === 'capture_deleted') {
+          // Saved earlier (the answer was lost), then deleted for good from another screen or
+          // device: nothing is left to send, so the device copy goes too.
+          await (async () => (await db()).delete('outbox', item.clientId))().catch(() => undefined);
+          return { ok: false, retryable: false, message: e.message, code: e.code };
+        }
         // Bookkeeping is best effort: an item that never reached the outbox (device storage
         // refused it) must still get an honest answer. Update only if the item is still
         // there, so a Discard during the request sticks.

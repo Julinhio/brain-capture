@@ -10,6 +10,7 @@ import { burnPasswordCheck, verifyPassword } from './auth/password.js';
 import { RateLimiter } from './auth/rate-limit.js';
 import { createSession, deleteSession, resolveSession, SESSION_COOKIE } from './auth/sessions.js';
 import { registerBackupRoutes } from './backup/backup.js';
+import { registerCategoryRoutes } from './captures/categories.js';
 import { registerCaptureEventRoutes } from './captures/event.js';
 import { registerCaptureRoutes } from './captures/routes.js';
 import type { Config } from './config.js';
@@ -128,6 +129,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.get('/api/me', async (req) => req.user);
 
   registerCaptureRoutes(app, deps);
+  registerCategoryRoutes(app, deps);
   registerCaptureEventRoutes(app, deps);
   registerBackupRoutes(app, deps);
   registerProjectRoutes(app, deps);

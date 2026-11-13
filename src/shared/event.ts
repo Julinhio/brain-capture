@@ -32,6 +32,11 @@ export interface CaptureEvent {
 export interface CaptureEventResponse {
   event: CaptureEvent | null;
   access: CalendarWriteAccess;
+  /**
+   * The event is in Google and the capture no longer exists in Brain Capture: a calendar
+   * request is not a task. Its original words are in the event description.
+   */
+  captureDeleted?: boolean;
 }
 
 /** When no end is said: one hour for a timed event, the same day for an all-day one. */

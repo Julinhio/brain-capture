@@ -31,6 +31,34 @@ export function useCapture(id: string) {
 
 export type CapturePatch = { title?: string; text?: string; category?: Category; status?: CaptureStatus };
 
+/**
+ * Set once a capture no longer exists because it became a calendar event: the screens showing
+ * it keep the confirmation and drop everything that would act on the capture.
+ */
+export function useRemovedCapture(id: string): boolean {
+  const query = useQuery({ queryKey: ['capture-removed', id], queryFn: () => false, enabled: false, staleTime: Infinity });
+  return query.data === true;
+}
+
+/** Everything that may still list or count a capture that is gone. */
+export function forgetCapture(queryClient: ReturnType<typeof useQueryClient>): void {
+  void queryClient.invalidateQueries({ queryKey: ['captures'] });
+  void queryClient.invalidateQueries({ queryKey: ['projects'] });
+}
+
+export function useDeleteCapture(onDeleted?: () => void) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteCapture(id),
+    onSuccess: (_result, id) => {
+      onDeleted?.();
+      queryClient.removeQueries({ queryKey: ['capture', id] });
+      queryClient.removeQueries({ queryKey: ['capture-event', id] });
+      forgetCapture(queryClient);
+    },
+  });
+}
+
 export function useUpdateCapture(onSaved?: (capture: Capture) => void) {
   const queryClient = useQueryClient();
   return useMutation({

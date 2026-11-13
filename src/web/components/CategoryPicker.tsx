@@ -1,20 +1,22 @@
-import { CATEGORIES, CATEGORY_LABELS, type Category } from '../../shared/categories';
+import type { Category } from '../../shared/categories';
+import { catProps, useCategories } from '../lib/categories';
 import { CategoryIcon } from './CategoryIcon';
 
 export function CategoryOptions({ value, onChange }: { value: Category; onChange: (c: Category) => void }) {
+  const { list } = useCategories();
   return (
     <div className="cat-options" role="group" aria-label="Category">
-      {CATEGORIES.map((c) => (
+      {list.map((c) => (
         <button
-          key={c}
+          key={c.id}
           type="button"
           className="cat-option"
-          data-cat={c}
-          aria-pressed={c === value}
-          onClick={() => onChange(c)}
+          {...catProps(c)}
+          aria-pressed={c.id === value}
+          onClick={() => onChange(c.id)}
         >
-          <CategoryIcon category={c} />
-          {CATEGORY_LABELS[c]}
+          <CategoryIcon category={c.id} />
+          {c.name}
         </button>
       ))}
     </div>

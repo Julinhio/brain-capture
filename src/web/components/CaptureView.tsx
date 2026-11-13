@@ -1,9 +1,9 @@
 import { ArrowUpRight, ChevronDown } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
-import { CATEGORY_LABELS } from '../../shared/categories';
 import { hostOf } from '../../shared/text';
 import type { Capture } from '../../shared/types';
-import { useUpdateCapture } from '../lib/useCaptures';
+import { catProps, useCategories } from '../lib/categories';
+import { useRemovedCapture, useUpdateCapture } from '../lib/useCaptures';
 import { CategoryOptions } from './CategoryPicker';
 import { CategoryIcon } from './CategoryIcon';
 import { EventCard } from './EventCard';
@@ -32,6 +32,8 @@ export function CaptureView({
   inlineCategories?: boolean;
 }) {
   const update = useUpdateCapture(onChange);
+  const { info } = useCategories();
+  const removed = useRemovedCapture(capture.id);
   const [pickingCategory, setPickingCategory] = useState(false);
   const [editingText, setEditingText] = useState(false);
   const [draft, setDraft] = useState(capture.text);
@@ -39,6 +41,16 @@ export function CaptureView({
   const [titleDraft, setTitleDraft] = useState(capture.title ?? '');
 
   const edited = capture.text !== capture.originalText;
+
+  // Turned into a calendar event: the capture no longer exists, only the confirmation stays.
+  if (removed) {
+    return (
+      <div>
+        {header}
+        <EventCard captureId={capture.id} />
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -111,12 +123,12 @@ export function CaptureView({
           <button
             type="button"
             className="cat-chip"
-            data-cat={capture.category}
+            {...catProps(info(capture.category))}
             onClick={() => setPickingCategory(true)}
             aria-expanded={false}
           >
             <CategoryIcon category={capture.category} />
-            {CATEGORY_LABELS[capture.category]}
+            {info(capture.category).name}
             <span className="change">
               Change <ChevronDown size={14} aria-hidden="true" style={{ verticalAlign: '-2px' }} />
             </span>

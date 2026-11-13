@@ -1,11 +1,12 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Archive, ArrowRight, CalendarDays, CheckCheck, Download, FolderKanban, LayoutGrid, Search, X } from 'lucide-react';
+import { Archive, ArrowRight, CalendarDays, CheckCheck, Download, FolderKanban, LayoutGrid, Search, Settings2, X } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { CATEGORIES, CATEGORY_HINTS, CATEGORY_LABELS, isCategory, type Category } from '../../shared/categories';
+import { isCategoryId, OTHER, RESERVED_CATEGORY_IDS, type Category, type CategoryInfo } from '../../shared/categories';
 import { extractUrl, hostOf, normalizeUrl } from '../../shared/text';
 import type { Capture, CaptureStatus } from '../../shared/types';
 import { Drawer } from '../components/Drawer';
 import { CategoryIcon } from '../components/CategoryIcon';
+import { catProps, useCategories } from '../lib/categories';
 import { discard, enqueue, onSent, send, type OutboxItem } from '../lib/outbox';
 import { navigate, useSearchParam } from '../lib/router';
 import { clockTime, formatDuration, relativeTime } from '../lib/time';
@@ -13,11 +14,23 @@ import { useCapturePages, useOverview } from '../lib/useCaptures';
 import { versionLabel } from '../version';
 import { Today } from './Today';
 import { Projects } from './Projects';
+import { Categories } from './Categories';
 
-type View = { kind: 'home' } | { kind: 'today' } | { kind: 'projects' } | { kind: 'category'; category: Category } | { kind: 'status'; status: Exclude<CaptureStatus, 'open'> };
+type View =
+  | { kind: 'home' }
+  | { kind: 'today' }
+  | { kind: 'projects' }
+  | { kind: 'categories' }
+  | { kind: 'category'; category: Category }
+  | { kind: 'status'; status: Exclude<CaptureStatus, 'open'> };
 
+// Category ids never take the words below (see RESERVED_CATEGORY_IDS), so the two cannot clash.
+// Any other id-shaped value is a category, even before the list has loaded: a link to a
+// category added since must not flash Today first.
 function parseView(raw: string | null): View {
-  if (isCategory(raw)) return { kind: 'category', category: raw };
+  if (raw === 'categories') return { kind: 'categories' };
+  if (raw && !RESERVED_CATEGORY_IDS.has(raw) && isCategoryId(raw)) return { kind: 'category', category: raw };
+  if (raw === OTHER) return { kind: 'category', category: OTHER };
   if (raw === 'done' || raw === 'archived') return { kind: 'status', status: raw };
   if (raw === 'everything') return { kind: 'home' };
   if (raw === 'workspace') return { kind: 'projects' };
@@ -38,6 +51,7 @@ export function Dashboard() {
   const openId = useSearchParam('id');
   const q = useSearchParam('q') ?? '';
   const selectedProject = useSearchParam('project');
+  const categories = useCategories();
   const view = parseView(rawView);
   const overview = useOverview();
 
@@ -57,15 +71,27 @@ export function Dashboard() {
           <button type="button" className="side-link mobile-capture-link" onClick={() => navigate('/capture')}>Capturer</button>
           <SideLink active={view.kind === 'projects' && !q} onClick={() => navigate('/?view=workspace')} label="My projects" />
           <SideLink active={view.kind === 'home' && !q} onClick={() => navigate('/?view=everything')} label="Everything" count={overview.data ? sum(overview.data.counts) : undefined} />
-          <p className="mono side-title">Categories</p>
-          {CATEGORIES.map((c) => (
+          <div className="side-title-row">
+            <p className="mono side-title">Categories</p>
+            <button
+              type="button"
+              className="side-manage"
+              aria-label="Manage categories"
+              aria-current={view.kind === 'categories' ? 'page' : undefined}
+              title="Manage categories"
+              onClick={() => navigate(href({ view: 'categories' }))}
+            >
+              <Settings2 size={14} aria-hidden="true" />
+            </button>
+          </div>
+          {categories.list.map((c) => (
             <SideLink
-              key={c}
+              key={c.id}
               cat={c}
-              active={view.kind === 'category' && view.category === c}
-              onClick={() => navigate(href({ view: c }))}
-              label={CATEGORY_LABELS[c]}
-              count={overview.data?.counts[c]}
+              active={view.kind === 'category' && view.category === c.id}
+              onClick={() => navigate(href({ view: c.id }))}
+              label={c.name}
+              count={overview.data?.counts[c.id] ?? (overview.data ? 0 : undefined)}
             />
           ))}
           <hr className="side-rule" />
@@ -102,10 +128,18 @@ export function Dashboard() {
           <Today onOpen={open} />
         ) : view.kind === 'projects' ? (
           <Projects onOpen={open} />
+        ) : view.kind === 'categories' ? (
+          <Categories />
         ) : view.kind === 'home' ? (
           <Home onOpen={open} />
         ) : view.kind === 'category' ? (
-          <ListView title={CATEGORY_LABELS[view.category]} subtitle={CATEGORY_HINTS[view.category]} status="open" category={view.category} onOpen={open} />
+          <ListView
+            title={categories.info(view.category).name}
+            subtitle={categories.info(view.category).description}
+            status="open"
+            category={view.category}
+            onOpen={open}
+          />
         ) : (
           <ListView title={view.status === 'done' ? 'Done' : 'Archived'} status={view.status} onOpen={open} />
         )}
@@ -116,14 +150,14 @@ export function Dashboard() {
   );
 }
 
-function sum(counts: Record<Category, number>): number {
-  return Object.values(counts).reduce((a, b) => a + b, 0);
+function sum(counts: Record<Category, number | undefined>): number {
+  return Object.values(counts).reduce<number>((a, b) => a + (b ?? 0), 0);
 }
 
-function SideLink({ label, count, active, onClick, cat }: { label: string; count?: number; active: boolean; onClick: () => void; cat?: Category }) {
+function SideLink({ label, count, active, onClick, cat }: { label: string; count?: number; active: boolean; onClick: () => void; cat?: CategoryInfo }) {
   return (
-    <button type="button" className="side-link" aria-current={active ? 'page' : undefined} onClick={onClick} data-cat={cat}>
-      {cat ? <CategoryIcon category={cat} /> : label === 'Today' ? <CalendarDays size={18} aria-hidden="true" /> : label === 'My projects' ? <FolderKanban size={18} aria-hidden="true" /> : label === 'Everything' ? <LayoutGrid size={18} strokeWidth={1.7} aria-hidden="true" /> : label === 'Done' ? <CheckCheck size={18} strokeWidth={1.7} aria-hidden="true" /> : <Archive size={18} strokeWidth={1.7} aria-hidden="true" />}
+    <button type="button" className="side-link" aria-current={active ? 'page' : undefined} onClick={onClick} {...(cat ? catProps(cat) : {})}>
+      {cat ? <CategoryIcon category={cat.id} /> : label === 'Today' ? <CalendarDays size={18} aria-hidden="true" /> : label === 'My projects' ? <FolderKanban size={18} aria-hidden="true" /> : label === 'Everything' ? <LayoutGrid size={18} strokeWidth={1.7} aria-hidden="true" /> : label === 'Done' ? <CheckCheck size={18} strokeWidth={1.7} aria-hidden="true" /> : <Archive size={18} strokeWidth={1.7} aria-hidden="true" />}
       <span className="grow">{label}</span>
       {count !== undefined && <span className="mono side-count">{count}</span>}
     </button>
@@ -137,6 +171,7 @@ function greeting(now = new Date()): string {
 
 function Home({ onOpen }: { onOpen: (id: string) => void }) {
   const overview = useOverview();
+  const categories = useCategories();
   const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   const data = overview.data;
 
@@ -157,27 +192,32 @@ function Home({ onOpen }: { onOpen: (id: string) => void }) {
       </header>
       {data && (
         <div className="sections">
-          {CATEGORIES.map((c) => (
-            <section key={c} className="section" data-cat={c} aria-labelledby={`sec-${c}`}>
-              <header className="section-header">
-                <span className="section-icon"><CategoryIcon category={c} /></span>
-                <h2 id={`sec-${c}`}>{CATEGORY_LABELS[c]}</h2>
-                <span className="mono section-count">{data.counts[c]}</span>
-                <span className="section-hint">{CATEGORY_HINTS[c]}</span>
-              </header>
-              <div className="cards">
-                {data.sections[c].length === 0 && <p className="empty card-empty">Nothing here yet.</p>}
-                {data.sections[c].map((capture) => (
-                  <Card key={capture.id} capture={capture} onOpen={onOpen} />
-                ))}
-              </div>
-              {data.counts[c] > data.sections[c].length && (
-                <button type="button" className="link-btn show-all" onClick={() => navigate(href({ view: c }))}>
-                  Show all {data.counts[c]} <ArrowRight size={14} aria-hidden="true" />
-                </button>
-              )}
-            </section>
-          ))}
+          {categories.list.map((info) => {
+            const c = info.id;
+            const count = data.counts[c] ?? 0;
+            const items = data.sections[c] ?? [];
+            return (
+              <section key={c} className="section" {...catProps(info)} aria-labelledby={`sec-${c}`}>
+                <header className="section-header">
+                  <span className="section-icon"><CategoryIcon category={c} /></span>
+                  <h2 id={`sec-${c}`}>{info.name}</h2>
+                  <span className="mono section-count">{count}</span>
+                  <span className="section-hint" title={info.description}>{info.description}</span>
+                </header>
+                <div className="cards">
+                  {items.length === 0 && <p className="empty card-empty">Nothing here yet.</p>}
+                  {items.map((capture) => (
+                    <Card key={capture.id} capture={capture} onOpen={onOpen} />
+                  ))}
+                </div>
+                {count > items.length && (
+                  <button type="button" className="link-btn show-all" onClick={() => navigate(href({ view: c }))}>
+                    Show all {count} <ArrowRight size={14} aria-hidden="true" />
+                  </button>
+                )}
+              </section>
+            );
+          })}
         </div>
       )}
     </>
@@ -201,13 +241,14 @@ function ListView({
 }) {
   const pages = useCapturePages(status, category ?? 'all', q);
   const items = pages.data?.pages.flatMap((p) => p.captures) ?? [];
+  const categories = useCategories();
   return (
     <>
       <header className="desk-hello">
         <button type="button" className="link-btn" onClick={() => navigate('/?view=everything')}>
           ← Everything
         </button>
-        <h1 className="list-title" data-cat={category}>
+        <h1 className="list-title" {...(category ? catProps(categories.info(category)) : {})}>
           {category && <CategoryIcon category={category} />}
           {title}
         </h1>
@@ -237,11 +278,12 @@ function cardMeta(c: Capture): string {
 }
 
 function Card({ capture: c, onOpen, showCategory = false }: { capture: Capture; onOpen: (id: string) => void; showCategory?: boolean }) {
+  const { info } = useCategories();
   // Until a capture is sorted its title is its own first line; repeating it as the preview is noise.
   const titleStem = (c.title ?? '').replace(/…$/, '');
   const showPreview = Boolean(c.text) && !(titleStem && c.text.startsWith(titleStem) && c.text.length <= titleStem.length + 40);
   return (
-    <button type="button" className="card" data-cat={c.category} onClick={() => onOpen(c.id)}>
+    <button type="button" className="card" {...catProps(info(c.category))} onClick={() => onOpen(c.id)}>
       <span className="card-title">
         {showCategory && <CategoryIcon category={c.category} />}
         {c.title ?? 'Untitled capture'}
@@ -308,6 +350,7 @@ function CaptureBar() {
   // A refused text still waiting for the field to be free.
   const pendingRefusal = useRef<Extract<BarStatus, { kind: 'refused' }> | null>(null);
   const [status, setStatus] = useState<BarStatus>({ kind: 'idle' });
+  const categories = useCategories();
   const timer = useRef<number>(undefined);
   // Same guard as the compose sheet: a second Enter before the outbox write finishes would
   // still see the old text and queue a duplicate.
@@ -428,8 +471,8 @@ function CaptureBar() {
         {status.kind === 'saved' && (
           <>
             Saved to{' '}
-            <span data-cat={status.capture.category} className="inline-cat">
-              <CategoryIcon category={status.capture.category} /> {CATEGORY_LABELS[status.capture.category]}
+            <span {...catProps(categories.info(status.capture.category))} className="inline-cat">
+              <CategoryIcon category={status.capture.category} /> {categories.info(status.capture.category).name}
             </span>
           </>
         )}

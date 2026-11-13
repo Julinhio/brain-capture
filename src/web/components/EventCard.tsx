@@ -14,6 +14,7 @@ import {
 } from '../../shared/event';
 import { api, deviceTimeZone, RequestError } from '../lib/api';
 import { useSearchParam } from '../lib/router';
+import { forgetCapture } from '../lib/useCaptures';
 
 const deviceZone = deviceTimeZone() ?? 'Europe/Paris';
 
@@ -106,7 +107,17 @@ function EventCardBody({ captureId, data, event }: { captureId: string; data: Ca
   const calendarResult = useSearchParam('calendar');
   const update = (next: CaptureEventResponse) => qc.setQueryData(queryKey, next);
 
-  const confirm = useMutation({ mutationFn: () => api.confirmEvent(captureId, draft), onSuccess: update });
+  const confirm = useMutation({
+    mutationFn: () => api.confirmEvent(captureId, draft),
+    onSuccess: (next) => {
+      update(next);
+      if (next.captureDeleted) {
+        // In Google now, and gone from Brain Capture: no history, category, Today or counter.
+        qc.setQueryData(['capture-removed', captureId], true);
+        forgetCapture(qc);
+      }
+    },
+  });
   const setState = useMutation({ mutationFn: (s: 'proposed' | 'dismissed') => api.setEventState(captureId, s), onSuccess: update });
   const reread = useMutation({ mutationFn: () => api.rereadEvent(captureId), onSuccess: update });
   const reconnect = useMutation({
@@ -135,6 +146,12 @@ function EventCardBody({ captureId, data, event }: { captureId: string; data: Ca
             Open in Google Calendar <ArrowUpRight size={16} aria-hidden="true" />
             <span className="sr-only">(new tab)</span>
           </a>
+        )}
+        {data.captureDeleted && (
+          <p className="hint event-handoff">
+            A calendar request is not a task: this note is no longer in Brain Capture. Its original words are in the event
+            description.
+          </p>
         )}
       </section>
     );

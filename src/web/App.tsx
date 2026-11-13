@@ -35,6 +35,9 @@ export function App() {
         queryClient.removeQueries({ queryKey: ['projects'] });
         queryClient.removeQueries({ queryKey: ['calendar'] });
         queryClient.removeQueries({ queryKey: ['radars'] });
+        queryClient.removeQueries({ queryKey: ['categories'] });
+        queryClient.removeQueries({ queryKey: ['capture-event'] });
+        queryClient.removeQueries({ queryKey: ['capture-removed'] });
       }),
     [queryClient],
   );
