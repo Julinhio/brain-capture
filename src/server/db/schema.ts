@@ -1,6 +1,8 @@
 import { sql } from 'drizzle-orm';
 import {
   boolean,
+  customType,
+  date,
   foreignKey,
   index,
   integer,
@@ -14,6 +16,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import type { CaptureEventState, EventDraft } from '../../shared/event.js';
+import type { NutritionData, NutritionSource, NutritionStatus, NutritionType } from '../../shared/nutrition.js';
 
 export const captureKindEnum = pgEnum('capture_kind', ['voice', 'text', 'link']);
 export const captureStatusEnum = pgEnum('capture_status', ['open', 'done', 'archived']);
@@ -87,6 +90,14 @@ export const captures = pgTable(
     classificationStatus: classificationStatusEnum('classification_status').notNull().default('pending'),
     classificationAttempts: integer('classification_attempts').notNull().default(0),
     status: captureStatusEnum('status').notNull().default('open'),
+    // Julien said "it's a note" on a Nutrition card, or a photo showed nothing to log, or the
+    // capture came from an app version that cannot show a Nutrition entry: classification sorts
+    // it into a category but never moves it to Nutrition on its own.
+    keptAsNote: boolean('kept_as_note').notNull().default(false),
+    // The phone's clock and zone when the capture was made (null for older rows): a meal
+    // recognised later, by the retry sweep, still lands on the day it was eaten.
+    capturedAt: timestamp('captured_at', { withTimezone: true, precision: 3 }),
+    timeZone: text('time_zone'),
     durationMs: integer('duration_ms'),
     device: text('device'),
     // Millisecond precision: the pagination cursor round-trips through a JS Date, which
@@ -188,3 +199,68 @@ export const deletedCaptures = pgTable(
   (t) => [uniqueIndex('deleted_captures_owner_client_idx').on(t.ownerId, t.clientId)],
 );
 export type DeletedCaptureRow = typeof deletedCaptures.$inferSelect;
+
+// ---------------------------------------------------------------------------------------
+// Nutrition: meals, workouts and weigh-ins. Deliberately not captures: nothing here shows in
+// categories, history, Today or any note counter.
+// ---------------------------------------------------------------------------------------
+
+const bytea = customType<{ data: Buffer; driverData: Uint8Array }>({
+  dataType: () => 'bytea',
+  fromDriver: (value) => Buffer.from(value),
+});
+
+export const nutritionEntries = pgTable(
+  'nutrition_entries',
+  {
+    // An entry that started as a capture keeps the capture's id, so a tombstone, the phone's
+    // "Saved" screen or a retry all point at the same thing.
+    id: uuid('id').primaryKey().defaultRandom(),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // Same idempotency as captures, and the same lock (lockClientId): a device id lives in
+    // exactly one of captures, nutrition_entries or deleted_captures.
+    clientId: uuid('client_id').notNull(),
+    type: text('type').$type<NutritionType>().notNull(),
+    status: text('status').$type<NutritionStatus>().notNull().default('proposed'),
+    source: text('source').$type<NutritionSource>().notNull(),
+    // The local day it counts for, in the phone's zone when it was captured.
+    day: date('day', { mode: 'string' }).notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true, precision: 3 }).notNull(),
+    timeZone: text('time_zone').notNull(),
+    title: text('title').notNull(),
+    originalText: text('original_text').notNull().default(''),
+    data: jsonb('data').$type<NutritionData>().notNull(),
+    hasPhoto: boolean('has_photo').notNull().default(false),
+    // Kept to give the note back as it was if Julien says "it's a note".
+    durationMs: integer('duration_ms'),
+    device: text('device'),
+    createdAt: timestamp('created_at', { withTimezone: true, precision: 3 }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, precision: 3 }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('nutrition_entries_owner_client_idx').on(t.ownerId, t.clientId),
+    index('nutrition_entries_owner_day_idx').on(t.ownerId, t.day),
+  ],
+);
+export type NutritionEntryRow = typeof nutritionEntries.$inferSelect;
+
+// A small thumbnail of a meal photo (about 20 KB), to recognise the plate in the day view.
+// The full picture is only used for the analysis and never stored. Apart from the entry so
+// that listing entries never drags image bytes along.
+export const nutritionPhotos = pgTable('nutrition_photos', {
+  entryId: uuid('entry_id')
+    .primaryKey()
+    .references(() => nutritionEntries.id, { onDelete: 'cascade' }),
+  mimeType: text('mime_type').notNull(),
+  bytes: bytea('bytes').notNull(),
+});
+
+export const nutritionSettings = pgTable('nutrition_settings', {
+  ownerId: uuid('owner_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  kcalGoal: integer('kcal_goal').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

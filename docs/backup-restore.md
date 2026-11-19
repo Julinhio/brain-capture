@@ -4,7 +4,7 @@
 
 Une sauvegarde au niveau de l'app : toutes les captures du compte, exportées en JSON par l'app elle-même (`GET /api/export`), et restaurables par l'app (`POST /api/import`). La base n'est jamais exposée hors du réseau privé de Railway ; tout passe par HTTPS et la session du compte.
 
-**Contenu d'une sauvegarde** : chaque capture avec tous ses champs (identifiant, texte corrigé et texte original, titre et s'il a été renommé, lien, catégorie et son origine, statut, durée, appareil, dates), les projets et leurs liens, et les catégories du compte (nom et description, voir `docs/categories.md`). Pas d'audio (il n'est jamais conservé). Pas de mot de passe ni de session : le compte est recréé depuis les variables Railway (`OWNER_EMAIL`, `OWNER_PASSWORD_HASH`).
+**Contenu d'une sauvegarde** : chaque capture avec tous ses champs (identifiant, texte corrigé et texte original, titre et s'il a été renommé, lien, catégorie et son origine, statut, durée, appareil, dates), les projets et leurs liens, les catégories du compte (nom et description, voir `docs/categories.md`), et les données Nutrition : chaque repas, séance et pesée, validé ou non, avec ses aliments, quantités et valeurs telles qu'affichées, plus l'objectif quotidien (voir `docs/nutrition.md`). Pas d'audio (il n'est jamais conservé) ni de miniatures de photos : la sauvegarde reste un petit fichier. Pas de mot de passe ni de session : le compte est recréé depuis les variables Railway (`OWNER_EMAIL`, `OWNER_PASSWORD_HASH`).
 
 **Où** : dans `C:\Users\julin\OneDrive\Documents\dev-secrets\brain-capture\backups\`. Dossier privé, hors du dépôt, synchronisé par OneDrive (copie hors de Railway et hors du PC). Les 30 plus récentes sont gardées.
 
@@ -25,6 +25,8 @@ La commande affiche le fichier écrit, le nombre de captures et une empreinte sh
 
 L'import **ajoute seulement ce qui manque** : une capture déjà présente (même identifiant) n'est jamais écrasée, rien n'est supprimé. Rejouer le même fichier est sans effet. Une capture **supprimée volontairement** depuis la sauvegarde (bouton Delete, ou devenue événement d'agenda) n'est pas réimportée : la réponse la compte dans `deleted`. Une capture dont la catégorie n'existe plus arrive dans Other.
 
+Les entrées Nutrition suivent la même règle : ajoutées si elles manquent, jamais écrasées, et une entrée supprimée depuis reste supprimée. Une capture ne vit qu'à un endroit : une note reconnue comme repas depuis la sauvegarde ne revient pas en note, et une entrée passée en note depuis ne revient pas en entrée. L'objectif n'est restauré que si le compte n'en a pas. **Une sauvegarde d'avant le volet Nutrition se restaure comme avant** (elle n'a simplement pas de partie `nutrition`, ni les trois champs ajoutés aux captures : heure et fuseau du téléphone, marque « gardée comme note », qui prennent alors leur valeur par défaut). `check-restore.mjs` compare aussi les entrées Nutrition champ par champ quand le fichier en contient, et compare chaque élément sur les champs que la sauvegarde contient : un fichier écrit par une version plus ancienne a moins de champs que l'export d'aujourd'hui, et tous doivent revenir identiques.
+
 - **Des captures ont disparu** : restaurer la dernière sauvegarde dans l'app en ligne, elles reviennent avec leurs identifiants et leurs dates.
 
 ```bash
@@ -44,6 +46,13 @@ node scripts/check-restore.mjs http://localhost:3101 <fichier.json>
 - Sauvegarde réelle de la production, en lecture seule : 8 captures, 4 794 octets, sha256 `86f1559f…f81e07b5`, fichier `brain-capture-2026-11-02T16-23-55-504Z.json` dans le dossier de sauvegardes.
 - Restauration dans une instance locale vierge (PGlite, base séparée, port 3101) avec `check-restore.mjs` : base vide au départ, 8 captures insérées, export identique champ par champ, second import 0 insérée et 8 ignorées.
 - Données de production inchangées : 8 captures avant et après le déploiement et la sauvegarde.
+
+## Vérification faite le 2026-11-19 (avant le volet Nutrition)
+
+- Version en production : `2babf1d`. Version à déployer : PR 16, branche `feat/nutrition` (`383668c`).
+- Sauvegarde réelle de la production, en lecture seule : 46 captures, 0 entrée Nutrition, 30 672 octets, sha256 `6a15082a…5209f6c1`, fichier `brain-capture-2026-11-19T10-52-16-224Z.json`.
+- Restauration dans une instance locale vierge (code de la branche, base en mémoire, port 3101) avec `check-restore.mjs` : base vide au départ, 46 captures insérées, identiques champ par champ, second import 0 insérée et 46 ignorées. Une sauvegarde écrite par la version actuelle se restaure donc telle quelle dans la nouvelle.
+- Aucune écriture de test en production.
 
 ## Coûts
 

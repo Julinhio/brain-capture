@@ -56,6 +56,7 @@ async function main() {
       JSON.stringify({
         file: target,
         captures: file.captures.length,
+        nutritionEntries: file.nutrition?.entries?.length ?? 0,
         bytes: Buffer.byteLength(raw),
         sha256: createHash('sha256').update(raw).digest('hex'),
         appVersion: file.appVersion,

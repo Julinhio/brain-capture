@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Archive, ArrowRight, CalendarDays, CheckCheck, Download, FolderKanban, LayoutGrid, Search, Settings2, X } from 'lucide-react';
+import { Archive, ArrowRight, CalendarDays, CheckCheck, Download, FolderKanban, LayoutGrid, Search, Settings2, Utensils, X } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { byCategory, isCategoryId, OTHER, RESERVED_CATEGORY_IDS, type Category, type CategoryInfo } from '../../shared/categories';
 import { extractUrl, hostOf, normalizeUrl } from '../../shared/text';
@@ -7,8 +7,11 @@ import type { Capture, CaptureStatus } from '../../shared/types';
 import { Drawer } from '../components/Drawer';
 import { CategoryIcon } from '../components/CategoryIcon';
 import { catProps, useCategories } from '../lib/categories';
+import type { Saved } from '../lib/api';
 import { discard, enqueue, onSent, send, type OutboxItem } from '../lib/outbox';
-import { navigate, useSearchParam } from '../lib/router';
+import { navigate, usePath, useSearchParam } from '../lib/router';
+import { refreshNutrition, todayHere, useNutritionDay } from '../lib/useNutrition';
+import { Nutrition } from './Nutrition';
 import { clockTime, formatDuration, relativeTime } from '../lib/time';
 import { useCapturePages, useOverview } from '../lib/useCaptures';
 import { versionLabel } from '../version';
@@ -21,6 +24,7 @@ type View =
   | { kind: 'today' }
   | { kind: 'projects' }
   | { kind: 'categories' }
+  | { kind: 'nutrition' }
   | { kind: 'category'; category: Category }
   | { kind: 'status'; status: Exclude<CaptureStatus, 'open'> };
 
@@ -52,8 +56,13 @@ export function Dashboard() {
   const q = useSearchParam('q') ?? '';
   const selectedProject = useSearchParam('project');
   const categories = useCategories();
-  const view = parseView(rawView);
+  // Nutrition has its own address (/nutrition), not a ?view=: a category Julien names
+  // "Nutrition" keeps its own id and page.
+  const onNutrition = usePath() === '/nutrition';
+  const view: View = onNutrition ? { kind: 'nutrition' } : parseView(rawView);
   const overview = useOverview();
+  // Only what waits for a tap is worth a number next to the section's name.
+  const nutritionPending = useNutritionDay(todayHere()).data?.pending.length;
 
   const detailHref = (id?: string) => { const url = new URL(href({ view: rawView, q, id }), window.location.origin); if (selectedProject) url.searchParams.set('project', selectedProject); return url.pathname + url.search; };
   const open = (id: string) => navigate(detailHref(id));
@@ -70,6 +79,7 @@ export function Dashboard() {
           <SideLink active={view.kind === 'today' && !q} onClick={() => navigate('/?view=today')} label="Today" />
           <button type="button" className="side-link mobile-capture-link" onClick={() => navigate('/capture')}>Capturer</button>
           <SideLink active={view.kind === 'projects' && !q} onClick={() => navigate('/?view=workspace')} label="My projects" />
+          <SideLink active={view.kind === 'nutrition'} onClick={() => navigate('/nutrition')} label="Nutrition" count={nutritionPending || undefined} />
           <SideLink active={view.kind === 'home' && !q} onClick={() => navigate('/?view=everything')} label="Everything" count={overview.data ? sum(overview.data.counts) : undefined} />
           <div className="side-title-row">
             <p className="mono side-title">Categories</p>
@@ -121,7 +131,9 @@ export function Dashboard() {
           <SearchBox initial={q} onSearch={(value) => navigate(href({ view: rawView, q: value }))} />
         </div>
 
-        {q ? (
+        {view.kind === 'nutrition' ? (
+          <Nutrition />
+        ) : q ? (
           // Search looks everywhere (open, done, archived): a finished item is still worth finding.
           <ListView title={`Results for “${q}”`} status="all" q={q} onOpen={open} />
         ) : view.kind === 'today' ? (
@@ -157,7 +169,7 @@ function sum(counts: Record<Category, number | undefined>): number {
 function SideLink({ label, count, active, onClick, cat }: { label: string; count?: number; active: boolean; onClick: () => void; cat?: CategoryInfo }) {
   return (
     <button type="button" className="side-link" aria-current={active ? 'page' : undefined} onClick={onClick} {...(cat ? catProps(cat) : {})}>
-      {cat ? <CategoryIcon category={cat.id} /> : label === 'Today' ? <CalendarDays size={18} aria-hidden="true" /> : label === 'My projects' ? <FolderKanban size={18} aria-hidden="true" /> : label === 'Everything' ? <LayoutGrid size={18} strokeWidth={1.7} aria-hidden="true" /> : label === 'Done' ? <CheckCheck size={18} strokeWidth={1.7} aria-hidden="true" /> : <Archive size={18} strokeWidth={1.7} aria-hidden="true" />}
+      {cat ? <CategoryIcon category={cat.id} /> : label === 'Today' ? <CalendarDays size={18} aria-hidden="true" /> : label === 'Nutrition' ? <Utensils size={18} strokeWidth={1.7} aria-hidden="true" /> : label === 'My projects' ? <FolderKanban size={18} aria-hidden="true" /> : label === 'Everything' ? <LayoutGrid size={18} strokeWidth={1.7} aria-hidden="true" /> : label === 'Done' ? <CheckCheck size={18} strokeWidth={1.7} aria-hidden="true" /> : <Archive size={18} strokeWidth={1.7} aria-hidden="true" />}
       <span className="grow">{label}</span>
       {count !== undefined && <span className="mono side-count">{count}</span>}
     </button>
@@ -326,7 +338,7 @@ function SearchBox({ initial, onSearch }: { initial: string; onSearch: (q: strin
 type BarStatus =
   | { kind: 'idle' }
   | { kind: 'saving' }
-  | { kind: 'saved'; capture: Capture }
+  | { kind: 'saved'; saved: Saved }
   | { kind: 'queued'; message: string }
   | { kind: 'refused'; message: string; text: string; clientId: string; restored: boolean }
   | { kind: 'store-failed' };
@@ -358,11 +370,13 @@ function CaptureBar() {
   // The capture the status line is about; a newer capture takes over the line.
   const followed = useRef<string | null>(null);
 
-  const showSaved = (capture: Capture) => {
+  const showSaved = (saved: Saved) => {
     window.clearTimeout(timer.current);
-    setStatus({ kind: 'saved', capture });
+    setStatus({ kind: 'saved', saved });
     void queryClient.invalidateQueries({ queryKey: ['captures'] });
-    timer.current = window.setTimeout(() => setStatus({ kind: 'idle' }), 4000);
+    refreshNutrition(queryClient);
+    // An entry to confirm stays on the line longer: its link is the way to it.
+    timer.current = window.setTimeout(() => setStatus({ kind: 'idle' }), saved.nutrition ? 12_000 : 4000);
   };
   const showSavedRef = useRef(showSaved);
   showSavedRef.current = showSaved;
@@ -370,8 +384,8 @@ function CaptureBar() {
   // "Not saved yet" must turn into "Saved" when the retry loop sends it in the background.
   useEffect(
     () =>
-      onSent((clientId, capture) => {
-        if (followed.current === clientId) showSavedRef.current(capture);
+      onSent((clientId, saved) => {
+        if (followed.current === clientId) showSavedRef.current(saved);
       }),
     [],
   );
@@ -410,7 +424,7 @@ function CaptureBar() {
     const result = await send(item);
     if (followed.current !== item.clientId) return;
     if (result.ok) {
-      showSaved(result.capture);
+      showSaved(result.saved);
     } else if (result.retryable) {
       window.clearTimeout(timer.current);
       setStatus({ kind: 'queued', message: `${result.message} Kept on this device, it is sent again automatically.` });
@@ -468,12 +482,20 @@ function CaptureBar() {
       </form>
       <p className="capture-bar-status" role="status" aria-live="polite">
         {status.kind === 'saving' && 'Saving…'}
-        {status.kind === 'saved' && (
+        {status.kind === 'saved' && status.saved.capture && (
           <>
             Saved to{' '}
-            <span {...catProps(categories.info(status.capture.category))} className="inline-cat">
-              <CategoryIcon category={status.capture.category} /> {categories.info(status.capture.category).name}
+            <span {...catProps(categories.info(status.saved.capture.category))} className="inline-cat">
+              <CategoryIcon category={status.saved.capture.category} /> {categories.info(status.saved.capture.category).name}
             </span>
+          </>
+        )}
+        {status.kind === 'saved' && status.saved.nutrition && (
+          <>
+            Read as {status.saved.nutrition.type === 'weight' ? 'your weight' : `a ${status.saved.nutrition.type}`}: {status.saved.nutrition.title}.{' '}
+            <button type="button" className="link-btn" onClick={() => navigate('/nutrition')}>
+              Confirm it in Nutrition
+            </button>
           </>
         )}
         {status.kind === 'queued' && <span className="field-error">Not saved yet. {status.message}</span>}

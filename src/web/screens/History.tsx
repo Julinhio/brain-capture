@@ -112,7 +112,7 @@ function Detail({ capture }: { capture: Capture }) {
           {KIND_LABEL[capture.kind]} · {relativeTime(capture.createdAt)}
         </span>
       </header>
-      <CaptureView key={capture.id} capture={capture} onChange={() => undefined} />
+      <CaptureView key={capture.id} capture={capture} onChange={() => undefined} onNutrition={() => navigate('/nutrition', { replace: true })} />
       <div className="bottom-bar">
         {removed ? (
           <button type="button" className="btn btn-primary" onClick={leave}>

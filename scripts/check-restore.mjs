@@ -23,7 +23,10 @@ async function main() {
   });
   if (!login.ok) throw new Error(`Local sign-in failed (${login.status})`);
   const cookie = (login.headers.get('set-cookie') ?? '').split(';')[0];
-  const exportNow = async () => (await (await fetch(`${base}/api/export`, { headers: { cookie } })).json()).captures;
+  const exportAll = async () => (await fetch(`${base}/api/export`, { headers: { cookie } })).json();
+  const exportNow = async () => (await exportAll()).captures;
+  // Backups from before the Nutrition section have no such part: nothing to compare then.
+  const backupEntries = backup.nutrition?.entries ?? [];
   const importFile = () => importInBatches(base, cookie, backup);
 
   const before = (await exportNow()).length;
@@ -33,10 +36,26 @@ async function main() {
   }
   const first = await importFile();
   const restored = await exportNow();
-  const sort = (list) => [...list].sort((a, b) => a.id.localeCompare(b.id));
-  const identical = JSON.stringify(sort(restored)) === JSON.stringify(sort(backup.captures));
+  // Field by field, on the fields the backup holds: a file written by an older version has
+  // fewer of them than today's export, and every one it has must come back identical.
+  const same = (restoredList, backupList) => {
+    const byId = new Map(restoredList.map((item) => [item.id, item]));
+    return (
+      restoredList.length === backupList.length &&
+      backupList.every((item) => {
+        const back = byId.get(item.id);
+        return Boolean(back) && JSON.stringify(Object.fromEntries(Object.keys(item).map((key) => [key, back[key]]))) === JSON.stringify(item);
+      })
+    );
+  };
+  const identical = same(restored, backup.captures);
+  const restoredNutrition = (await exportAll()).nutrition ?? { entries: [], settings: null };
+  const nutritionIdentical =
+    same(restoredNutrition.entries, backupEntries) &&
+    (!backup.nutrition?.settings || JSON.stringify(restoredNutrition.settings) === JSON.stringify(backup.nutrition.settings));
   const second = await importFile();
   const afterSecond = (await exportNow()).length;
+  const nutritionAfterSecond = ((await exportAll()).nutrition?.entries ?? []).length;
 
   const result = {
     backupCaptures: backup.captures.length,
@@ -46,6 +65,10 @@ async function main() {
     identicalFieldByField: identical,
     secondImport: second,
     countAfterSecondImport: afterSecond,
+    backupNutritionEntries: backupEntries.length,
+    restoredNutritionEntries: restoredNutrition.entries.length,
+    nutritionIdenticalFieldByField: nutritionIdentical,
+    nutritionCountAfterSecondImport: nutritionAfterSecond,
   };
   console.log(JSON.stringify(result, null, 2));
   const ok =
@@ -53,7 +76,11 @@ async function main() {
     first.inserted === backup.captures.length &&
     identical &&
     second.inserted === 0 &&
-    afterSecond === backup.captures.length;
+    afterSecond === backup.captures.length &&
+    first.nutrition.inserted === backupEntries.length &&
+    nutritionIdentical &&
+    second.nutrition.inserted === 0 &&
+    nutritionAfterSecond === backupEntries.length;
   process.exitCode = ok ? 0 : 1;
 }
 

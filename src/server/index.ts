@@ -6,6 +6,7 @@ import { ensureOwner } from './auth/owner.js';
 import { startClassificationSweeper } from './captures/sweeper.js';
 import { loadConfig } from './config.js';
 import { openDb } from './db/client.js';
+import { createFoodLookup } from './nutrition/foods.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -13,12 +14,13 @@ async function main(): Promise<void> {
   if (config.ownerEmail && config.ownerPasswordHash) await ensureOwner(db, config.ownerEmail, config.ownerPasswordHash);
 
   const ai = config.groqApiKey
-    ? createGroqAi({ apiKey: config.groqApiKey, transcribeModel: config.transcribeModel, classifyModel: config.classifyModel })
+    ? createGroqAi({ apiKey: config.groqApiKey, transcribeModel: config.transcribeModel, classifyModel: config.classifyModel, visionModel: config.visionModel })
     : createUnavailableAi();
 
-  const app = await buildApp({ db, ai, config, webDir: path.resolve(process.cwd(), 'dist/web'), logger: true });
+  const foods = createFoodLookup();
+  const app = await buildApp({ db, ai, config, foods, webDir: path.resolve(process.cwd(), 'dist/web'), logger: true });
   if (!config.groqApiKey) app.log.warn('GROQ_API_KEY is not set: voice capture and sorting are disabled');
-  const stopSweeper = startClassificationSweeper(db, ai, app.log);
+  const stopSweeper = startClassificationSweeper(db, ai, app.log, foods);
 
   const shutdown = async () => {
     stopSweeper();

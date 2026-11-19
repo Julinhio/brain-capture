@@ -1,12 +1,12 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { Capture } from '../../shared/types';
-import { api, deviceLabel, deviceTimeZone, RequestError } from './api';
+import { api, deviceLabel, deviceTimeZone, RequestError, type Saved } from './api';
 
 /**
  * Every capture is written here before the first upload attempt and removed only once the
  * server has confirmed it is stored. The clientId travels with each retry, so the server
  * stores it once however many times it is sent. For voice, this is also the only place the
  * audio lives: it is deleted with the item, i.e. right after a confirmed save or a discard.
+ * Same for a photo: the picture (already resized) and its thumbnail wait here, nowhere else.
  *
  * Limits, on purpose: retries run while the app is open (on launch, when the connection
  * comes back, or on "Retry now"). If the browser clears site data, pending items go with it.
@@ -26,11 +26,13 @@ interface OutboxBase {
 
 export type OutboxItem =
   | (OutboxBase & { kind: 'text' | 'link'; text: string; url?: string })
-  | (OutboxBase & { kind: 'voice'; audio: Blob; mimeType: string; durationMs: number });
+  | (OutboxBase & { kind: 'voice'; audio: Blob; mimeType: string; durationMs: number })
+  | (OutboxBase & { kind: 'photo'; image: Blob; thumb: Blob | null; caption: string });
 
 export type NewOutboxItem =
   | { kind: 'text' | 'link'; text: string; url?: string }
-  | { kind: 'voice'; audio: Blob; mimeType: string; durationMs: number };
+  | { kind: 'voice'; audio: Blob; mimeType: string; durationMs: number }
+  | { kind: 'photo'; image: Blob; thumb: Blob | null; caption: string };
 
 interface OutboxDb extends DBSchema {
   outbox: { key: string; value: OutboxItem };
@@ -77,12 +79,23 @@ export async function discard(clientId: string): Promise<void> {
 }
 
 export type SendResult =
-  | { ok: true; capture: Capture }
+  | { ok: true; saved: Saved }
   | { ok: false; retryable: boolean; message: string; code: string };
 
 const inFlight = new Map<string, Promise<SendResult>>();
 
-function upload(item: OutboxItem): Promise<Capture> {
+function upload(item: OutboxItem): Promise<Saved> {
+  if (item.kind === 'photo') {
+    return api.createPhotoCapture({
+      clientId: item.clientId,
+      image: item.image,
+      thumb: item.thumb,
+      caption: item.caption,
+      device: item.device,
+      capturedAt: item.createdAt,
+      timeZone: item.timeZone,
+    });
+  }
   if (item.kind === 'voice') {
     return api.createVoiceCapture({
       clientId: item.clientId,
@@ -111,9 +124,9 @@ export function send(item: OutboxItem): Promise<SendResult> {
   if (running) return running;
   const attempt = (async (): Promise<SendResult> => {
     try {
-      let capture: Capture;
+      let saved: Saved;
       try {
-        capture = await upload(item);
+        saved = await upload(item);
       } catch (err) {
         const e = err instanceof RequestError ? err : new RequestError('network', 'No connection right now.', 0);
         if (e.code === 'capture_deleted') {
@@ -139,8 +152,8 @@ export function send(item: OutboxItem): Promise<SendResult> {
       }
       // The server has it: a failure to clean up locally must not report the save as failed.
       await (async () => (await db()).delete('outbox', item.clientId))().catch(() => undefined);
-      for (const l of sentListeners) l(item.clientId, capture);
-      return { ok: true, capture };
+      for (const l of sentListeners) l(item.clientId, saved);
+      return { ok: true, saved };
     } finally {
       inFlight.delete(item.clientId);
       notify();
@@ -163,7 +176,7 @@ export async function flush(): Promise<void> {
  * Screens showing a waiting capture use it to move on when it leaves in the background:
  * a static "Not saved yet" over an already saved capture was the real Android bug.
  */
-type SentListener = (clientId: string, capture: Capture) => void;
+type SentListener = (clientId: string, saved: Saved) => void;
 const sentListeners = new Set<SentListener>();
 export function onSent(listener: SentListener): () => void {
   sentListeners.add(listener);

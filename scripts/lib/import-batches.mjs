@@ -15,12 +15,14 @@ export async function importInBatches(base, cookie, backup, size = batchSize()) 
   for (let i = 0; i < backup.captures.length; i += size) slices.push(backup.captures.slice(i, i + size));
   if (slices.length === 0) slices.push([]); // An empty backup is still validated by the server.
 
-  const totals = { inserted: 0, skipped: 0, deleted: 0, total: 0, batches: 0 };
+  const totals = { inserted: 0, skipped: 0, deleted: 0, total: 0, batches: 0, nutrition: { inserted: 0, skipped: 0, deleted: 0 } };
   for (const captures of slices) {
+    // Nutrition entries are small and few: they go with the first batch, not with every one.
+    const nutrition = totals.batches === 0 ? backup.nutrition : undefined;
     const res = await fetch(`${base}/api/import`, {
       method: 'POST',
       headers: { cookie, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...backup, captures }),
+      body: JSON.stringify({ ...backup, captures, nutrition }),
     });
     if (!res.ok) throw new Error(`Import failed on batch ${totals.batches + 1} of ${slices.length} (${res.status}): ${await res.text()}`);
     const r = await res.json();
@@ -29,6 +31,8 @@ export async function importInBatches(base, cookie, backup, size = batchSize()) 
     // Captures deleted for good since the backup: they stay deleted (older servers omit it).
     totals.deleted += r.deleted ?? 0;
     totals.total += r.total;
+    // Older servers know nothing of Nutrition and answer without it.
+    for (const key of ['inserted', 'skipped', 'deleted']) totals.nutrition[key] += r.nutrition?.[key] ?? 0;
     totals.batches += 1;
   }
   return totals;

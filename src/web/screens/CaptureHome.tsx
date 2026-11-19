@@ -1,8 +1,11 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, CalendarDays, Check, Clock, Download, Link2, Mic, MicOff, Share2, Square, Type, X } from 'lucide-react';
+import { AlertTriangle, CalendarDays, Camera, Check, Clock, Download, Link2, Mic, MicOff, Share2, Square, Type, Utensils, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import type { Capture } from '../../shared/types';
 import { CaptureView } from '../components/CaptureView';
+import { NutritionCard } from '../components/NutritionCard';
+import { PhotoSheet } from '../components/PhotoSheet';
+import type { Saved } from '../lib/api';
+import { refreshNutrition } from '../lib/useNutrition';
 import { CategoryIcon } from '../components/CategoryIcon';
 import { ComposeSheet, type ComposeValue } from '../components/ComposeSheet';
 import { discard, enqueue, flush, makeItem, onSent, pendingItems, send, subscribe, type NewOutboxItem, type OutboxItem } from '../lib/outbox';
@@ -17,11 +20,16 @@ import { MAX_RECORDING_MS, useRecorder, type RecorderError, type Recording } fro
 type Mode =
   | { name: 'home' }
   | { name: 'compose'; kind: 'text' | 'link'; initial?: ComposeValue; replaces?: string; storeFailed?: boolean }
+  | { name: 'photo' }
   // `unstored`: the device refused to keep it (storage full or blocked). It then lives only in
   // this screen's memory, so nothing may suggest it is safe to walk away.
   | { name: 'saving'; item: OutboxItem; notice?: string; unstored?: boolean }
   | { name: 'not-saved'; item: OutboxItem; message: string; retryable: boolean; unstored?: boolean }
-  | { name: 'saved'; capture: Capture; notice?: string };
+  // A note, or an entry of the Nutrition section (a meal, a workout, a weigh-in) to confirm.
+  | { name: 'saved'; saved: Saved; notice?: string };
+
+/** What an outbox item is called on the waiting and failure screens. */
+const NOUN = { voice: 'recording', photo: 'photo', text: 'capture', link: 'capture' } as const;
 
 const MIC_ERRORS: Record<RecorderError, string> = {
   'permission-denied': 'Microphone access is blocked. Allow it for this site in your browser settings, or write it down instead.',
@@ -38,6 +46,7 @@ export function TopBar() {
         Brain Capture
       </button>
       <button type="button" className="pill-btn" onClick={() => navigate('/?view=today')} aria-label="Today"><CalendarDays size={16} aria-hidden="true" /></button>
+      <button type="button" className="pill-btn" onClick={() => navigate('/nutrition')} aria-label="Nutrition"><Utensils size={16} aria-hidden="true" /></button>
       <button type="button" className="pill-btn" onClick={() => navigate('/history')}>
         <Clock size={16} aria-hidden="true" />
         History
@@ -54,8 +63,10 @@ function usePendingItems(): OutboxItem[] {
     refresh();
     return subscribe(() => {
       refresh();
-      // An item leaving the outbox in the background is a new capture on the server.
+      // An item leaving the outbox in the background is a new capture on the server, or a new
+      // entry waiting in Nutrition.
       void queryClient.invalidateQueries({ queryKey: ['captures'] });
+      refreshNutrition(queryClient);
     });
   }, [queryClient]);
   return items;
@@ -107,8 +118,9 @@ export function CaptureHome({ share }: { share?: SharedData } = {}) {
     const result = await send(item);
     if (followed.current !== item.clientId) return;
     if (result.ok) {
-      setMode({ name: 'saved', capture: result.capture, notice });
+      setMode({ name: 'saved', saved: result.saved, notice });
       void queryClient.invalidateQueries({ queryKey: ['captures'] });
+      refreshNutrition(queryClient);
     } else {
       setMode({ name: 'not-saved', item, message: result.message, retryable: result.retryable, unstored });
     }
@@ -119,11 +131,11 @@ export function CaptureHome({ share }: { share?: SharedData } = {}) {
   // drop the local copy of something already stored).
   useEffect(
     () =>
-      onSent((clientId, capture) => {
+      onSent((clientId, saved) => {
         if (followed.current !== clientId) return;
         setMode((prev) =>
           (prev.name === 'saving' || prev.name === 'not-saved') && prev.item.clientId === clientId
-            ? { name: 'saved', capture, notice: prev.name === 'saving' ? prev.notice : undefined }
+            ? { name: 'saved', saved, notice: prev.name === 'saving' ? prev.notice : undefined }
             : prev,
         );
         void queryClient.invalidateQueries({ queryKey: ['captures'] });
@@ -213,10 +225,12 @@ export function CaptureHome({ share }: { share?: SharedData } = {}) {
         mode={mode}
         onRetry={() => void attempt(item, undefined, mode.unstored)}
         onEdit={
-          item.kind === 'voice'
-            ? undefined
-            : () => setMode({ name: 'compose', kind: item.kind, initial: { text: item.text, url: item.url }, replaces: item.clientId })
+          item.kind === 'text' || item.kind === 'link'
+            ? () => setMode({ name: 'compose', kind: item.kind, initial: { text: item.text, url: item.url }, replaces: item.clientId })
+            : undefined
         }
+        // A refused photo stays on the device like a refused recording; another can be taken.
+        onAnotherPhoto={item.kind === 'photo' ? () => setMode({ name: 'photo' }) : undefined}
         // Recording again keeps the refused note: it stays on the device (and in the Review
         // banner) until it is saved, retried or discarded on purpose.
         onRecordAgain={item.kind === 'voice' ? startRecording : undefined}
@@ -225,15 +239,60 @@ export function CaptureHome({ share }: { share?: SharedData } = {}) {
     );
   }
 
+  if (mode.name === 'saved' && mode.saved.nutrition) {
+    const entry = mode.saved.nutrition;
+    const what = entry.type === 'meal' ? 'a meal' : entry.type === 'workout' ? 'a workout' : 'your weight';
+    return (
+      <main className="screen">
+        <TopBar />
+        <div style={{ marginTop: 16 }}>
+          <p className="saved-head" role="status">
+            <Check size={18} aria-hidden="true" /> {entry.status === 'confirmed' ? 'Added to Nutrition' : `Understood as ${what}`}{' '}
+            <span className="mono">· {clockTime(entry.occurredAt)}</span>
+          </p>
+          {mode.notice && <p className="hint">{mode.notice}</p>}
+          {entry.status === 'proposed' && <p className="hint">Check it, correct what is off, then add it. It is not a note: it only lives in Nutrition.</p>}
+          <NutritionCard
+            key={entry.updatedAt}
+            entry={entry}
+            stickyActions={entry.status === 'proposed'}
+            onChange={(next) => setMode({ name: 'saved', saved: { nutrition: next }, notice: mode.notice })}
+            onDeleted={goHome}
+            // The detection was wrong: it is a note after all, shown as any saved note.
+            onNote={(capture) => setMode({ name: 'saved', saved: { capture } })}
+          />
+        </div>
+        {entry.status === 'proposed' ? (
+          // The card's own buttons sit at the bottom of the screen; leaving without deciding is
+          // fine too, the entry waits in Nutrition.
+          <button type="button" className="link-btn nut-later" onClick={goHome}>
+            Decide later
+          </button>
+        ) : (
+          <div className="bottom-bar">
+            <button type="button" className="btn" onClick={goHome}>
+              Done
+            </button>
+            <button type="button" className="btn" onClick={() => navigate('/nutrition')}>
+              <Utensils size={18} aria-hidden="true" /> Nutrition
+            </button>
+          </div>
+        )}
+      </main>
+    );
+  }
+
   if (mode.name === 'saved') {
-    const c = mode.capture;
+    // Not a Nutrition entry (handled above), so it is a note.
+    const c = mode.saved.capture!;
     return (
       <main className="screen">
         <TopBar />
         <div style={{ marginTop: 16 }}>
           <CaptureView
             capture={c}
-            onChange={(capture) => setMode({ name: 'saved', capture, notice: mode.notice })}
+            onChange={(capture) => setMode({ name: 'saved', saved: { capture }, notice: mode.notice })}
+            onNutrition={(nutrition) => setMode({ name: 'saved', saved: { nutrition } })}
             header={
               <>
                 <p className="saved-head" role="status">
@@ -288,13 +347,18 @@ export function CaptureHome({ share }: { share?: SharedData } = {}) {
             <Mic size={44} aria-hidden="true" />
           </span>
         </button>
-        <button type="button" className="capture-action" onClick={() => setMode({ name: 'compose', kind: 'link' })}>
+        <button type="button" className="capture-action" onClick={() => setMode({ name: 'photo' })}>
           <span className="icon-btn">
-            <Link2 size={22} aria-hidden="true" />
+            <Camera size={22} aria-hidden="true" />
           </span>
-          Link
+          Photo
         </button>
       </div>
+      {/* Links mostly arrive through the phone's Share menu; typing one stays a tap away. */}
+      <button type="button" className="link-btn capture-link" onClick={() => setMode({ name: 'compose', kind: 'link' })}>
+        <Link2 size={15} aria-hidden="true" />
+        Link
+      </button>
 
       {pending.length > 0 && (
         <div className="banner" role="status">
@@ -303,7 +367,9 @@ export function CaptureHome({ share }: { share?: SharedData } = {}) {
             {blocked
               ? blocked.kind === 'voice'
                 ? 'A recording was refused by transcription. It is kept on this device.'
-                : 'A capture could not be saved as is.'
+                : blocked.kind === 'photo'
+                  ? 'A photo could not be read. It is kept on this device.'
+                  : 'A capture could not be saved as is.'
               : `${pending.length === 1 ? '1 capture is' : `${pending.length} captures are`} waiting to be saved.`}
           </span>
           {blocked ? (
@@ -346,6 +412,9 @@ export function CaptureHome({ share }: { share?: SharedData } = {}) {
         </div>
       </section>
 
+      {mode.name === 'photo' && (
+        <PhotoSheet onClose={goHome} onSubmit={(photo, caption) => save({ kind: 'photo', image: photo.image, thumb: photo.thumb, caption })} />
+      )}
       {mode.name === 'compose' && (
         <ComposeSheet
           kind={mode.kind}
@@ -412,6 +481,7 @@ function RecordingView({
 
 function SavingView({ mode, onAnother }: { mode: Extract<Mode, { name: 'saving' }>; onAnother: () => void }) {
   const voice = mode.item.kind === 'voice';
+  const photo = mode.item.kind === 'photo';
   return (
     <main className="screen">
       <TopBar />
@@ -421,16 +491,16 @@ function SavingView({ mode, onAnother }: { mode: Extract<Mode, { name: 'saving' 
         <div className="list" style={{ marginTop: 24 }}>
           <div className="list-item" style={{ cursor: 'default' }}>
             <Check size={18} color="var(--success)" aria-hidden="true" />
-            <span className="grow">{voice ? 'Recorded' : 'Kept on this device'}</span>
+            <span className="grow">{voice ? 'Recorded' : photo ? 'Photo kept on this device' : 'Kept on this device'}</span>
             {mode.item.kind === 'voice' && <span className="meta mono">{formatDuration(mode.item.durationMs)}</span>}
           </div>
           <div className="list-item" style={{ cursor: 'default' }}>
             <span className="spinner" aria-hidden="true" />
-            <span className="grow">{voice ? 'Uploading and transcribing' : 'Saving'}</span>
+            <span className="grow">{voice ? 'Uploading and transcribing' : photo ? 'Uploading and reading the photo' : 'Saving'}</span>
           </div>
           <div className="list-item" style={{ cursor: 'default', color: 'var(--text-faint)' }}>
             <span className="step-dot" aria-hidden="true" />
-            <span className="grow">Sorting into a category</span>
+            <span className="grow">{photo ? 'Working out what it is' : 'Sorting it'}</span>
           </div>
         </div>
         {mode.notice && <p className="hint">{mode.notice}</p>}
@@ -489,16 +559,20 @@ function NotSaved({
   onRetry,
   onEdit,
   onRecordAgain,
+  onAnotherPhoto,
   onDone,
 }: {
   mode: Extract<Mode, { name: 'not-saved' }>;
   onRetry: () => void;
   onEdit?: () => void;
   onRecordAgain?: () => void;
+  onAnotherPhoto?: () => void;
   onDone: () => void;
 }) {
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const voice = mode.item.kind === 'voice';
+  const noun = NOUN[mode.item.kind];
+  // A recording or a photo is kept on the device even when refused: it cannot be retyped.
+  const voice = mode.item.kind === 'voice' || mode.item.kind === 'photo';
   return (
     <main className="screen">
       <TopBar />
@@ -509,14 +583,16 @@ function NotSaved({
         <h1>Not saved yet</h1>
         {mode.unstored ? (
           <p className="lead">
-            {mode.message} This device could not keep the {voice ? 'recording' : 'capture'}: it only exists on this screen. Retry
+            {mode.message} This device could not keep the {noun}: it only exists on this screen. Retry
             while it is open; leaving the screen loses it.
           </p>
         ) : mode.retryable ? (
           <p className="lead">
-            {mode.message} Your {voice ? 'recording' : 'capture'} is safe on this device. It is sent automatically while the app is
+            {mode.message} Your {noun} is safe on this device. It is sent automatically while the app is
             open, and this screen updates as soon as it is saved.
           </p>
+        ) : mode.item.kind === 'photo' ? (
+          <p className="lead">{mode.message} The photo is kept on this device and is not retried automatically. Try again later, or take another one.</p>
         ) : voice ? (
           <p className="lead">
             {mode.message} The recording is kept on this device and is not retried automatically. Save a copy to keep it outside
@@ -560,6 +636,11 @@ function NotSaved({
               <Mic size={18} aria-hidden="true" /> Record again
             </button>
           )}
+          {!mode.retryable && onAnotherPhoto && (
+            <button type="button" className="btn btn-block" onClick={onAnotherPhoto}>
+              <Camera size={18} aria-hidden="true" /> Take another photo
+            </button>
+          )}
           {/* Whenever the capture is on the device (waiting or refused), leaving is safe: it
               stays there and the home banner leads back to it. */}
           {!mode.unstored && (mode.retryable || voice) && (
@@ -576,7 +657,7 @@ function NotSaved({
               void discard(mode.item.clientId).catch(() => undefined).then(onDone);
             }}
           >
-            {confirmDiscard ? 'Tap again to discard for good' : voice ? 'Discard recording' : 'Discard'}
+            {confirmDiscard ? 'Tap again to discard for good' : voice ? `Discard ${noun}` : 'Discard'}
           </button>
         </div>
       </div>
