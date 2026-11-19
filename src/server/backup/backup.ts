@@ -56,6 +56,11 @@ const exportedCapture = z.object({
   updatedAt: z.iso.datetime(),
   doneAt: z.iso.datetime().nullable(),
   archivedAt: z.iso.datetime().nullable(),
+  // Added with the Nutrition section, absent from older files: a capture restored without
+  // them behaves as it did before they existed.
+  keptAsNote: z.boolean().default(false),
+  capturedAt: z.iso.datetime().nullable().default(null),
+  timeZone: z.string().max(100).nullable().default(null),
 });
 export type ExportedCapture = z.infer<typeof exportedCapture>;
 
@@ -132,6 +137,9 @@ function toExported(row: CaptureRow): ExportedCapture {
     updatedAt: row.updatedAt.toISOString(),
     doneAt: row.doneAt?.toISOString() ?? null,
     archivedAt: row.archivedAt?.toISOString() ?? null,
+    keptAsNote: row.keptAsNote,
+    capturedAt: row.capturedAt?.toISOString() ?? null,
+    timeZone: row.timeZone,
   };
 }
 
@@ -200,6 +208,9 @@ export async function importCaptures(
         updatedAt: new Date(c.updatedAt),
         doneAt: c.doneAt ? new Date(c.doneAt) : null,
         archivedAt: c.archivedAt ? new Date(c.archivedAt) : null,
+        keptAsNote: c.keptAsNote,
+        capturedAt: c.capturedAt ? new Date(c.capturedAt) : null,
+        timeZone: c.timeZone,
       })
       .onConflictDoNothing()
       .returning({ id: captures.id });

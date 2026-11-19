@@ -111,7 +111,13 @@ export async function buildEntry(db: Db, foods: FoodLookup, ownerId: string, x: 
     const minutes = x.minutes ?? 30;
     const met = x.met ?? 5;
     const weightKg = (await latestWeight(db, ownerId, day))?.kg ?? DEFAULT_WEIGHT_KG;
-    const data: WorkoutData = { activity: x.activity, minutes, met: round1(met), kcal: x.kcal ?? workoutKcal(met, weightKg, minutes), weightKg };
+    // Calories given by the capture itself ("410 kcal à la montre", a watch screen) are kept as
+    // they are: MET 0 marks them, so correcting the duration on the card does not replace them
+    // with an estimate.
+    const data: WorkoutData =
+      x.kcal !== null
+        ? { activity: x.activity, minutes, met: 0, kcal: x.kcal, weightKg }
+        : { activity: x.activity, minutes, met: round1(met), kcal: workoutKcal(met, weightKg, minutes), weightKg };
     return { type: 'workout', title: (x.title || `${x.activity} ${minutes} min`).slice(0, MAX_TITLE), day, data };
   }
   if (x.type === 'meal') {

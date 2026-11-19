@@ -100,9 +100,10 @@ describe('restore', () => {
   it('a backup from before the Nutrition section restores as it always did', async () => {
     const before = await note('Old note');
     const file = await exportAs();
-    // Exactly what an older version wrote: no nutrition key at all.
+    // Exactly what an older version wrote: no nutrition part, and captures without the three
+    // fields added since.
     delete file.nutrition;
-    expect(Object.keys(file.captures[0])).not.toContain('keptAsNote');
+    for (const c of file.captures) for (const key of ['keptAsNote', 'capturedAt', 'timeZone']) delete c[key];
     await meal();
 
     await fresh(async (other, otherCookie) => {
@@ -110,12 +111,41 @@ describe('restore', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ inserted: 1, skipped: 0, deleted: 0, total: 1, nutrition: NONE });
       const restored = (await other.app.inject({ method: 'GET', url: '/api/export', headers: { cookie: otherCookie } })).json();
-      expect(restored.captures).toEqual(file.captures);
+      // Everything the old file says is back; the fields it did not have take their defaults.
+      expect(restored.captures).toEqual([{ ...file.captures[0], keptAsNote: false, capturedAt: null, timeZone: null }]);
       expect(restored.captures[0].id).toBe(before.id);
     });
     // Into the live account: the entry made since is untouched.
     expect((await importAs(file)).json()).toEqual({ inserted: 0, skipped: 1, deleted: 0, total: 1, nutrition: NONE });
     expect(await ctx.db.select().from(nutritionEntries)).toHaveLength(1);
+  });
+
+  it('a capture keeps its phone clock, its zone and its "note for good" mark through a restore', async () => {
+    // Still unsorted when the backup is taken: captured two hours ago in Da Nang, by the
+    // current app; and another one from an older app, which must stay a note.
+    ctx.ai.failClassify = true;
+    const capturedAt = Date.now() - 2 * 3_600_000;
+    await call('POST', '/api/captures', { clientId: newClientId(), kind: 'text', text: 'une banane', nutrition: true, capturedAt, timeZone: 'Asia/Ho_Chi_Minh' });
+    await call('POST', '/api/captures', { clientId: newClientId(), kind: 'text', text: 'un yaourt' });
+    const file = await exportAs();
+    const [current, old] = ['une banane', 'un yaourt'].map((text) => file.captures.find((c: { text: string }) => c.text === text));
+    expect(current).toMatchObject({ keptAsNote: false, capturedAt: new Date(capturedAt).toISOString(), timeZone: 'Asia/Ho_Chi_Minh' });
+    expect(old).toMatchObject({ keptAsNote: true });
+
+    await fresh(async (other, otherCookie) => {
+      await other.app.inject({ method: 'POST', url: '/api/import', headers: { cookie: otherCookie }, payload: file });
+      const restored = (await other.app.inject({ method: 'GET', url: '/api/export', headers: { cookie: otherCookie } })).json();
+      expect(restored.captures).toEqual(file.captures);
+      // The retry sweep then behaves as it would have: the first lands in Nutrition on the day
+      // it was captured, the second stays a note.
+      other.ai.nextClassification = { category: 'lifestyle', title: 'x', intent: 'meal' };
+      const { sweepClassifications } = await import('../src/server/captures/sweeper.js');
+      const { createFoodLookup } = await import('../src/server/nutrition/foods.js');
+      await sweepClassifications(other.db, other.ai, new Date(Date.now() + 3_600_000), createFoodLookup({ fetchImpl: null }));
+      const [entry] = await other.db.select().from(nutritionEntries);
+      expect(entry).toMatchObject({ originalText: 'une banane', day: localDay(new Date(capturedAt), 'Asia/Ho_Chi_Minh') });
+      expect((await other.db.select().from(captures)).map((c) => c.text)).toEqual(['un yaourt']);
+    });
   });
 
   it('never overwrites: an entry edited since the backup keeps its edits, the goal stays', async () => {

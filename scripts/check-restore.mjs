@@ -36,11 +36,22 @@ async function main() {
   }
   const first = await importFile();
   const restored = await exportNow();
-  const sort = (list) => [...list].sort((a, b) => a.id.localeCompare(b.id));
-  const identical = JSON.stringify(sort(restored)) === JSON.stringify(sort(backup.captures));
+  // Field by field, on the fields the backup holds: a file written by an older version has
+  // fewer of them than today's export, and every one it has must come back identical.
+  const same = (restoredList, backupList) => {
+    const byId = new Map(restoredList.map((item) => [item.id, item]));
+    return (
+      restoredList.length === backupList.length &&
+      backupList.every((item) => {
+        const back = byId.get(item.id);
+        return Boolean(back) && JSON.stringify(Object.fromEntries(Object.keys(item).map((key) => [key, back[key]]))) === JSON.stringify(item);
+      })
+    );
+  };
+  const identical = same(restored, backup.captures);
   const restoredNutrition = (await exportAll()).nutrition ?? { entries: [], settings: null };
   const nutritionIdentical =
-    JSON.stringify(sort(restoredNutrition.entries)) === JSON.stringify(sort(backupEntries)) &&
+    same(restoredNutrition.entries, backupEntries) &&
     (!backup.nutrition?.settings || JSON.stringify(restoredNutrition.settings) === JSON.stringify(backup.nutrition.settings));
   const second = await importFile();
   const afterSecond = (await exportNow()).length;

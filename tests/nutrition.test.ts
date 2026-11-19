@@ -146,7 +146,8 @@ describe('workouts and the day balance', () => {
 
   it('keeps the calories the note itself gives, and assumes half an hour when no duration is said', async () => {
     ctx.ai.nextNutrition = workout('Running', 32, 9.8, { kcal: 410 });
-    expect((await log('footing, 410 kcal à la montre')).data).toMatchObject({ kcal: 410, minutes: 32 });
+    // Given by the capture, so not an estimate: MET 0, and the card will not recompute them.
+    expect((await log('footing, 410 kcal à la montre')).data).toMatchObject({ kcal: 410, minutes: 32, met: 0 });
     ctx.ai.nextNutrition = workout('Padel', null, null);
     expect((await log('padel ce matin')).data).toMatchObject({ minutes: 30, met: 5, kcal: 188 });
   });
@@ -316,7 +317,7 @@ describe('photo', () => {
     ctx.ai.nextPhoto = { ...weight(78.4), description: 'A bathroom scale showing 78.4 kg.' };
     expect((await photo()).json().nutrition).toMatchObject({ type: 'weight', data: { kg: 78.4 } });
     ctx.ai.nextPhoto = { ...workout('Running', 42, 9.8, { kcal: 512 }), description: 'A watch summary.' };
-    expect((await photo()).json().nutrition).toMatchObject({ type: 'workout', data: { minutes: 42, kcal: 512 } });
+    expect((await photo()).json().nutrition).toMatchObject({ type: 'workout', data: { minutes: 42, kcal: 512, met: 0 } });
   });
 
   it('anything else becomes a note with what the picture says, and stays a note', async () => {
