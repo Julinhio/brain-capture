@@ -137,6 +137,9 @@ export function registerCaptureRoutes(app: FastifyInstance, { db, ai, foods }: D
       device: input.device ?? null,
       capturedAt: context.reference,
       timeZone: context.timeZone,
+      // From an app that cannot show a Nutrition entry: a note for good, also for the retry
+      // sweep, which would otherwise move it later where that app cannot follow.
+      keptAsNote: input.nutrition !== true,
     });
     if (saved.deleted) return sendError(reply, 410, 'capture_deleted', DELETED_MESSAGE);
     // Already recognised as a meal, a workout or a weigh-in on an earlier attempt.
@@ -223,6 +226,7 @@ export function registerCaptureRoutes(app: FastifyInstance, { db, ai, foods }: D
       device: device ?? null,
       capturedAt: context.reference,
       timeZone: context.timeZone,
+      keptAsNote: !routesNutrition,
     });
     if (saved.deleted) return sendError(reply, 410, 'capture_deleted', DELETED_MESSAGE);
     if (saved.entry) return reply.code(200).send({ nutrition: toEntry(saved.entry), created: false });

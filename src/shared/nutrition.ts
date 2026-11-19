@@ -40,7 +40,10 @@ export interface MealData {
 export interface WorkoutData {
   activity: string;
   minutes: number;
-  /** Metabolic equivalent of the activity; kcal = MET × kg × hours. */
+  /**
+   * Metabolic equivalent of the activity; kcal = MET × kg × hours. 0 when the calories were
+   * typed by hand: they then no longer follow the duration.
+   */
   met: number;
   kcal: number;
   /** The body weight used for the estimate (latest weigh-in, or the default). */
@@ -263,7 +266,8 @@ export function cleanData(type: NutritionType, raw: unknown): NutritionData | nu
     return {
       activity,
       minutes: Math.round(r.minutes),
-      met: finite(r.met) ? clamp(round1(r.met), 1, 25) : 0,
+      // 0 is kept as it is (calories set by hand); anything else is a real MET.
+      met: finite(r.met) && r.met >= 1 ? clamp(round1(r.met), 1, 25) : 0,
       kcal: Math.round(r.kcal),
       weightKg: finite(r.weightKg) ? clamp(round1(r.weightKg), MIN_WEIGHT_KG, MAX_WEIGHT_KG) : DEFAULT_WEIGHT_KG,
     };

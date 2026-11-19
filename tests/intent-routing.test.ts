@@ -123,6 +123,26 @@ describe('what stays a note', () => {
     expect(body.nutrition).toBeUndefined();
     expect(ctx.ai.nutritionCalls).toHaveLength(0);
   });
+
+  it('and its captures are not moved later by the retry sweep either', async () => {
+    // The model is down when the older app sends its capture, then comes back.
+    ctx.ai.failClassify = true;
+    const clientId = newClientId();
+    const old = () => ctx.app.inject({ method: 'POST', url: '/api/captures', headers: { cookie }, payload: { clientId, kind: 'text', text: "j'ai mangé une banane" } });
+    expect((await old()).json().capture).toMatchObject({ classificationStatus: 'failed' });
+    ctx.ai.failClassify = false;
+    ctx.ai.nextClassification = { category: 'lifestyle', title: 'Banane mangée', intent: 'meal' };
+    expect(await sweepClassifications(ctx.db, ctx.ai, later(), foods)).toBe(1);
+    expect(await entryRows()).toHaveLength(0);
+    expect(ctx.ai.nutritionCalls).toHaveLength(0);
+    // Its retry after a lost answer still gets a capture, the only thing it can read.
+    const again = (await old()).json() as Saved;
+    expect(again.capture).toMatchObject({ category: 'lifestyle', classificationStatus: 'done' });
+    expect(again.nutrition).toBeUndefined();
+    // From the current app, he can still log it in Nutrition himself.
+    const moved = await ctx.app.inject({ method: 'POST', url: `/api/captures/${again.capture!.id}/nutrition`, headers: { cookie } });
+    expect(moved.json().nutrition).toMatchObject({ type: 'meal' });
+  });
 });
 
 describe('when the model cannot be asked', () => {
@@ -247,6 +267,16 @@ describe('correcting the detection, both ways', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().nutrition).toMatchObject({ id: capture!.id, type: 'meal', status: 'proposed', originalText: 'une banane' });
     expect(await noteRows()).toHaveLength(0);
+
+    // A transcription corrected by hand is read as corrected, and the correction is kept.
+    ctx.ai.nextClassification = { category: 'other', title: 'Bananes', intent: 'note' };
+    const { capture: misheard } = (await send('une bande Anne')).json() as Saved;
+    await ctx.app.inject({ method: 'PATCH', url: `/api/captures/${misheard!.id}`, headers: { cookie }, payload: { text: 'une banane' } });
+    const fixed = await ctx.app.inject({ method: 'POST', url: `/api/captures/${misheard!.id}/nutrition`, headers: { cookie } });
+    expect(ctx.ai.nutritionCalls.at(-1)!.text).toBe('une banane');
+    expect(fixed.json().nutrition.originalText).toBe('une banane');
+    expect((await ctx.app.inject({ method: 'POST', url: `/api/nutrition/entries/${misheard!.id}/note`, headers: { cookie } })).json().capture.text).toBe('une banane');
+    await ctx.app.inject({ method: 'DELETE', url: `/api/captures/${misheard!.id}`, headers: { cookie } });
 
     // Nothing to log in it: said so, and the note is left alone.
     const { capture: other } = (await send('Rappeler le plombier')).json() as Saved;

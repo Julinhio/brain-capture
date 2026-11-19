@@ -90,8 +90,9 @@ export const captures = pgTable(
     classificationStatus: classificationStatusEnum('classification_status').notNull().default('pending'),
     classificationAttempts: integer('classification_attempts').notNull().default(0),
     status: captureStatusEnum('status').notNull().default('open'),
-    // Julien said "it's a note" on a Nutrition card (or a photo showed nothing to log):
-    // classification sorts it into a category but never moves it to Nutrition again.
+    // Julien said "it's a note" on a Nutrition card, or a photo showed nothing to log, or the
+    // capture came from an app version that cannot show a Nutrition entry: classification sorts
+    // it into a category but never moves it to Nutrition on its own.
     keptAsNote: boolean('kept_as_note').notNull().default(false),
     // The phone's clock and zone when the capture was made (null for older rows): a meal
     // recognised later, by the retry sweep, still lands on the day it was eaten.

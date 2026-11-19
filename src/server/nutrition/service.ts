@@ -238,7 +238,8 @@ export async function moveCaptureToNutrition(
           clientId: gone.clientId,
           status: 'proposed',
           source: gone.kind === 'voice' ? 'voice' : 'text',
-          originalText: gone.originalText,
+          // What the entry was read from: the note as it reads now, corrections included.
+          originalText: gone.text,
           when,
           durationMs: gone.durationMs,
           device: gone.device,

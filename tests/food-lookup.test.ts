@@ -214,6 +214,9 @@ describe('the arithmetic shared by the server and the card', () => {
     expect(cleanData('weight', { kg: 700 })).toBeNull();
     expect(cleanData('workout', { activity: ' Vélo ', minutes: 45.4, kcal: 421.9 })).toEqual({ activity: 'Vélo', minutes: 45, met: 0, kcal: 422, weightKg: 75 });
     expect(cleanData('workout', { activity: '', minutes: 45, kcal: 1 })).toBeNull();
+    // MET 0 marks calories typed by hand: it must come back as 0, not as a real MET of 1.
+    expect(cleanData('workout', { activity: 'Vélo', minutes: 45, kcal: 500, met: 0, weightKg: 78 })).toMatchObject({ met: 0, kcal: 500 });
+    expect(cleanData('workout', { activity: 'Vélo', minutes: 45, kcal: 422, met: 7.5, weightKg: 78 })).toMatchObject({ met: 7.5 });
     expect(cleanData('meal', { slot: 'brunch', items: [banana] })).toMatchObject({ slot: 'snack', items: [{ name: 'banane', source: 'ciqual' }] });
     expect(cleanData('meal', { items: [{ ...banana, kcal: 1e9 }] })).toBeNull();
     expect(cleanData('meal', { items: 'banane' })).toBeNull();

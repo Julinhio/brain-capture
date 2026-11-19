@@ -62,7 +62,8 @@ export async function sortCapture(
       // The full reading has the last word: it may still say this is not for Nutrition. If it
       // cannot be asked, the whole attempt fails and is retried, rather than filing a meal
       // under a category for good.
-      const extraction = await ai.extractNutrition({ text: attempt.originalText, ...when });
+      // The text as it reads now: the same one the first reading was given.
+      const extraction = await ai.extractNutrition({ text: attempt.text, ...when });
       const built = await buildEntry(db, foods, attempt.ownerId, extraction, when);
       if (built) {
         const entry = await moveCaptureToNutrition(db, attempt, built, when);

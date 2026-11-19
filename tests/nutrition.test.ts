@@ -151,6 +151,15 @@ describe('workouts and the day balance', () => {
     expect((await log('padel ce matin')).data).toMatchObject({ minutes: 30, met: 5, kcal: 188 });
   });
 
+  it('calories typed by hand stay as typed when the entry is saved and reopened', async () => {
+    ctx.ai.nextNutrition = workout('Vélo', 45, 7.5);
+    const entry = await confirm((await log('45 min de vélo')).id);
+    // The card sends MET 0 with calories set by hand: they no longer follow the duration.
+    const res = await call('PATCH', `/api/nutrition/entries/${entry.id}`, { data: { ...entry.data, kcal: 500, met: 0 } });
+    expect(res.json().nutrition.data).toMatchObject({ kcal: 500, met: 0, minutes: 45 });
+    expect((await day()).totals.burned).toBe(500);
+  });
+
   it('the goal must be a plausible number', async () => {
     for (const kcalGoal of [100, 20_000, 2000.5, '2000']) {
       expect((await call('PUT', '/api/nutrition/settings', { kcalGoal })).statusCode).toBe(400);

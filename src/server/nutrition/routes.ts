@@ -347,7 +347,7 @@ export function registerNutritionRoutes(app: FastifyInstance, { db, ai, foods }:
     let built;
     try {
       if (!ai.available) throw new Error('No AI provider configured');
-      built = await buildEntry(db, foods, req.user!.id, await ai.extractNutrition({ text: capture.originalText || capture.text, ...when }), when);
+      built = await buildEntry(db, foods, req.user!.id, await ai.extractNutrition({ text: capture.text, ...when }), when);
     } catch (err) {
       req.log.warn({ err: (err as Error).message }, 'nutrition reading failed');
       return sendError(reply, 503, 'internal', 'Automatic reading is unavailable right now. Try again in a moment.');
