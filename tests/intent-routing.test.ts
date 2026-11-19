@@ -196,6 +196,38 @@ describe('one capture, stored once, in one place', () => {
     expect(await noteRows()).toHaveLength(0);
   });
 
+  it('two overlapping attempts on the same capture both answer with the entry', async () => {
+    // The upload is still waiting for the model when the retry sweep picks the capture up.
+    ctx.ai.nextClassification = { category: 'lifestyle', title: 'Banane', intent: 'meal' };
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const extract = ctx.ai.extractNutrition.bind(ctx.ai);
+    let held = false;
+    ctx.ai.extractNutrition = async (input) => {
+      // Only the first reading (the upload's) is held back.
+      if (!held) {
+        held = true;
+        await gate;
+      }
+      return extract(input);
+    };
+    const upload = send("j'ai mangé une banane");
+    // Wait until the upload's capture is stored and its reading has started.
+    while (!held) await new Promise((r) => setTimeout(r, 10));
+    await ctx.db.update(captures).set({ updatedAt: new Date(0) });
+    expect(await sweepClassifications(ctx.db, ctx.ai, later(), foods)).toBe(1);
+    const [moved] = await entryRows();
+    expect(await noteRows()).toHaveLength(0);
+
+    release();
+    const body = (await upload).json() as Saved;
+    // Not a note that no longer exists: the entry the other attempt stored.
+    expect(body.capture).toBeUndefined();
+    expect(body.nutrition).toMatchObject({ id: moved!.id, type: 'meal', status: 'proposed' });
+    expect(await entryRows()).toHaveLength(1);
+    expect(await noteRows()).toHaveLength(0);
+  });
+
   it('a deleted entry does not come back when the phone sends it again', async () => {
     ctx.ai.nextClassification = { category: 'lifestyle', title: 'Banane', intent: 'meal' };
     const clientId = newClientId();

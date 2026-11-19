@@ -5,7 +5,7 @@ import type { Ai } from '../ai/types.js';
 import type { Db } from '../db/client.js';
 import type { CaptureRow, NutritionEntryRow } from '../db/schema.js';
 import type { FoodLookup } from '../nutrition/foods.js';
-import { buildEntry, moveCaptureToNutrition, type When } from '../nutrition/service.js';
+import { buildEntry, getEntry, moveCaptureToNutrition, type When } from '../nutrition/service.js';
 import { askCategory, beginClassification, failClassification, finishClassification, getCapture } from './service.js';
 
 // What happens to a capture once it is safely stored: the model says what it is. A note gets
@@ -41,6 +41,19 @@ export function mayBeNutrition(capture: CaptureRow): boolean {
   return !capture.keptAsNote && capture.kind !== 'link' && !looksLikeCalendarRequest(capture.originalText);
 }
 
+/**
+ * Where a capture is now. Two attempts can overlap (an upload still being read when the retry
+ * sweep picks the same capture up): the one that arrives second must answer with what the first
+ * one made of it, the Nutrition entry included, never with a note that no longer exists.
+ */
+async function whereItIs(db: Db, row: CaptureRow): Promise<Sorted> {
+  const capture = await getCapture(db, row.ownerId, row.id);
+  if (capture) return { kind: 'capture', row: capture };
+  const entry = await getEntry(db, row.ownerId, row.id);
+  // Neither: deleted meanwhile. The caller gets the row it had, as before.
+  return entry ? { kind: 'nutrition', row: entry } : { kind: 'capture', row };
+}
+
 export async function sortCapture(
   { db, ai, foods }: SortDeps,
   row: CaptureRow,
@@ -53,7 +66,8 @@ export async function sortCapture(
   // No key configured yet: leave it pending so it is sorted once a key is added.
   if (!ai.available) return { kind: 'capture', row };
   const attempt = await beginClassification(db, row);
-  if (!attempt) return { kind: 'capture', row: (await getCapture(db, row.ownerId, row.id)) ?? row };
+  // Already sorted, or no longer among the notes.
+  if (!attempt) return whereItIs(db, row);
 
   try {
     const result = await askCategory(db, ai, attempt);
@@ -68,6 +82,10 @@ export async function sortCapture(
       if (built) {
         const entry = await moveCaptureToNutrition(db, attempt, built, when);
         if (entry) return { kind: 'nutrition', row: entry };
+        // Not moved: another attempt moved it first, or it was deleted or marked as a note
+        // while the model was answering.
+        const now = await whereItIs(db, attempt);
+        if (now.kind === 'nutrition') return now;
       }
     }
     return { kind: 'capture', row: await finishClassification(db, attempt, result) };
