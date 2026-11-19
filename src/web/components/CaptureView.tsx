@@ -1,7 +1,9 @@
-import { ArrowUpRight, ChevronDown } from 'lucide-react';
+import { ArrowUpRight, ChevronDown, Utensils } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { hostOf } from '../../shared/text';
+import type { NutritionEntry } from '../../shared/nutrition';
 import type { Capture } from '../../shared/types';
+import { useCaptureToNutrition } from '../lib/useNutrition';
 import { catProps, useCategories } from '../lib/categories';
 import { useRemovedCapture, useUpdateCapture } from '../lib/useCaptures';
 import { CategoryOptions } from './CategoryPicker';
@@ -23,17 +25,21 @@ export function CaptureView({
   capture,
   header,
   onChange,
+  onNutrition,
   inlineCategories = false,
 }: {
   capture: Capture;
   header?: ReactNode;
   onChange: (capture: Capture) => void;
+  /** The note was logged in Nutrition instead: it no longer exists as a capture. */
+  onNutrition?: (entry: NutritionEntry) => void;
   /** Desktop drawer: all categories visible at once instead of behind a "Change" chip. */
   inlineCategories?: boolean;
 }) {
   const update = useUpdateCapture(onChange);
   const { info } = useCategories();
   const removed = useRemovedCapture(capture.id);
+  const toNutrition = useCaptureToNutrition(onNutrition);
   const [pickingCategory, setPickingCategory] = useState(false);
   const [editingText, setEditingText] = useState(false);
   const [draft, setDraft] = useState(capture.text);
@@ -210,6 +216,22 @@ export function CaptureView({
         {edited && !editingText && <p className="hint">Edited. The original text is kept.</p>}
         {capture.kind === 'voice' && <p className="hint">Audio deleted after transcription. Only the text is kept.</p>}
       </section>
+
+      {/* The detection left a meal, a workout or a weight among the notes: one tap sends it over. */}
+      {onNutrition && capture.kind !== 'link' && (
+        <p className="hint to-nutrition">
+          A meal, a workout or your weight?{' '}
+          <button type="button" className="link-btn" disabled={toNutrition.isPending} onClick={() => toNutrition.mutate(capture.id)}>
+            <Utensils size={13} aria-hidden="true" /> {toNutrition.isPending ? 'Reading…' : 'Log in Nutrition'}
+          </button>
+          {toNutrition.isError && (
+            <span className="field-error" role="alert">
+              {' '}
+              {toNutrition.error.message}
+            </span>
+          )}
+        </p>
+      )}
 
       <ProjectLinks captureId={capture.id} />
       {update.isError && (

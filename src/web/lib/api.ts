@@ -2,6 +2,18 @@ import type { ApiError, ApiErrorCode, Capture, CaptureStatus, Me } from '../../s
 import type { Category, CategoryInfo } from '../../shared/categories';
 import type { CalendarDay, Project, ProjectState, RadarSummary, TodayData } from '../../shared/dashboard';
 import type { CaptureEventResponse, EventDraft } from '../../shared/event';
+import type { FoodItem, NutritionData, NutritionDay, NutritionEntry, NutritionHistory, NutritionSettings } from '../../shared/nutrition';
+
+/**
+ * What the server made of a capture: a note, or, for a meal, a workout or a weigh-in, an entry
+ * of the Nutrition section. Never both.
+ */
+export type Saved = { capture: Capture; nutrition?: undefined } | { nutrition: NutritionEntry; capture?: undefined };
+
+function saved(r: { capture?: Capture; nutrition?: NutritionEntry }): Saved {
+  if (r.nutrition) return { nutrition: r.nutrition };
+  return { capture: r.capture! };
+}
 
 export interface Overview {
   counts: Record<Category, number>;
@@ -41,6 +53,7 @@ export function onUnauthorized(listener: () => void): () => void {
 // deduplicates on clientId. Voice allows for upload plus a slow transcription.
 const DEFAULT_TIMEOUT_MS = 45_000;
 const VOICE_TIMEOUT_MS = 180_000;
+const PHOTO_TIMEOUT_MS = 90_000;
 
 async function request<T>(method: string, path: string, body?: unknown | FormData, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<T> {
   let res: Response;
@@ -114,7 +127,8 @@ export const api = {
     capturedAt?: number;
     timeZone?: string;
   }) =>
-    request<{ capture: Capture; created: boolean }>('POST', '/api/captures', input).then((r) => r.capture),
+    // `nutrition`: this version of the app knows the Nutrition section and can show an entry.
+    request<{ capture?: Capture; nutrition?: NutritionEntry; created: boolean }>('POST', '/api/captures', { ...input, nutrition: true }).then(saved),
   createVoiceCapture: (input: {
     clientId: string;
     audio: Blob;
@@ -131,9 +145,42 @@ export const api = {
     form.append('device', input.device);
     if (input.capturedAt !== undefined) form.append('capturedAt', String(Math.round(input.capturedAt)));
     if (input.timeZone) form.append('timeZone', input.timeZone);
+    form.append('nutrition', '1');
     form.append('audio', input.audio, `recording.${extensionFor(input.mimeType)}`);
-    return request<{ capture: Capture; created: boolean }>('POST', '/api/captures/voice', form, VOICE_TIMEOUT_MS).then((r) => r.capture);
+    return request<{ capture?: Capture; nutrition?: NutritionEntry; created: boolean }>('POST', '/api/captures/voice', form, VOICE_TIMEOUT_MS).then(saved);
   },
+  createPhotoCapture: (input: {
+    clientId: string;
+    image: Blob;
+    thumb: Blob | null;
+    caption: string;
+    device: string;
+    capturedAt?: number;
+    timeZone?: string;
+  }) => {
+    const form = new FormData();
+    form.append('clientId', input.clientId);
+    if (input.caption) form.append('caption', input.caption);
+    form.append('device', input.device);
+    if (input.capturedAt !== undefined) form.append('capturedAt', String(Math.round(input.capturedAt)));
+    if (input.timeZone) form.append('timeZone', input.timeZone);
+    form.append('image', input.image, 'photo.jpg');
+    if (input.thumb) form.append('thumb', input.thumb, 'thumb.jpg');
+    return request<{ capture?: Capture; nutrition?: NutritionEntry; created: boolean }>('POST', '/api/captures/photo', form, PHOTO_TIMEOUT_MS).then(saved);
+  },
+  nutritionDay: (day: string, timeZone: string) => request<NutritionDay>('GET', `/api/nutrition/day?${new URLSearchParams({ day, timeZone })}`),
+  nutritionHistory: (from: string, to: string) => request<NutritionHistory>('GET', `/api/nutrition/history?${new URLSearchParams({ from, to })}`),
+  updateEntry: (id: string, patch: { status?: 'confirmed'; title?: string; day?: string; data?: NutritionData }) =>
+    request<{ nutrition: NutritionEntry }>('PATCH', `/api/nutrition/entries/${id}`, patch).then((r) => r.nutrition),
+  deleteEntry: (id: string) => request<{ deleted: true }>('DELETE', `/api/nutrition/entries/${id}`),
+  /** "It's a note": the entry leaves Nutrition and becomes a capture. */
+  entryToNote: (id: string) => request<{ capture: Capture }>('POST', `/api/nutrition/entries/${id}/note`).then((r) => r.capture),
+  /** The other way: a note read again as a meal, a workout or a weight. */
+  captureToNutrition: (id: string) => request<{ nutrition: NutritionEntry }>('POST', `/api/captures/${id}/nutrition`).then((r) => r.nutrition),
+  logNutrition: (input: { clientId: string; text?: string; weightKg?: number; day?: string; capturedAt?: number; timeZone?: string }) =>
+    request<{ nutrition: NutritionEntry; created: boolean }>('POST', '/api/nutrition/entries', input).then((r) => r.nutrition),
+  estimateFoods: (text: string) => request<{ items: FoodItem[] }>('POST', '/api/nutrition/estimate', { text }).then((r) => r.items),
+  setKcalGoal: (kcalGoal: number) => request<NutritionSettings>('PUT', '/api/nutrition/settings', { kcalGoal }),
   updateCapture: (id: string, patch: { title?: string; text?: string; category?: Category; status?: CaptureStatus }) =>
     request<{ capture: Capture }>('PATCH', `/api/captures/${id}`, patch).then((r) => r.capture),
   deleteCapture: (id: string) => request<{ deleted: true }>('DELETE', `/api/captures/${id}`),

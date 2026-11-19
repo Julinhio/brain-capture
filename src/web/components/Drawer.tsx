@@ -1,6 +1,7 @@
 import { Archive, Check, RotateCcw, X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import type { Capture } from '../../shared/types';
+import { navigate } from '../lib/router';
 import { clockTime, formatDuration } from '../lib/time';
 import { useCapture, useRemovedCapture, useUpdateCapture } from '../lib/useCaptures';
 import { CaptureView } from './CaptureView';
@@ -52,7 +53,9 @@ export function Drawer({ id, onClose }: { id: string; onClose: () => void }) {
         <div className="drawer-body">
           {capture.isPending && <p className="hint">Loading…</p>}
           {capture.isError && !removed && <p className="field-error">This capture could not be loaded.</p>}
-          {capture.data && <CaptureView key={capture.data.id} capture={capture.data} onChange={() => undefined} inlineCategories />}
+          {capture.data && (
+            <CaptureView key={capture.data.id} capture={capture.data} onChange={() => undefined} onNutrition={() => navigate('/nutrition')} inlineCategories />
+          )}
         </div>
         {capture.data && !removed && <DrawerActions capture={capture.data} onDeleted={onClose} />}
       </aside>

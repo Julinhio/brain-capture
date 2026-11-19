@@ -9,6 +9,7 @@ import { CaptureHome } from './screens/CaptureHome';
 import { Dashboard } from './screens/Dashboard';
 import { History } from './screens/History';
 import { Login } from './screens/Login';
+import { Nutrition } from './screens/Nutrition';
 
 function readShare(): SharedData {
   const params = new URLSearchParams(window.location.search);
@@ -38,6 +39,7 @@ export function App() {
         queryClient.removeQueries({ queryKey: ['categories'] });
         queryClient.removeQueries({ queryKey: ['capture-event'] });
         queryClient.removeQueries({ queryKey: ['capture-removed'] });
+        queryClient.removeQueries({ queryKey: ['nutrition'] });
       }),
     [queryClient],
   );
@@ -54,6 +56,8 @@ export function App() {
   // the capture flow on every device, desktop included.
   if (path === '/share' || path === '/capture') return <CaptureHome share={path === '/share' ? readShare() : undefined} />;
   if (path === '/' && (desktop || Boolean(view))) return <Dashboard />;
+  // Nutrition: inside the dashboard on a desktop, its own screen on a phone.
+  if (path === '/nutrition') return desktop ? <Dashboard /> : <Nutrition phone />;
   if (path.startsWith('/history')) return <History />;
   return <CaptureHome />;
 }
