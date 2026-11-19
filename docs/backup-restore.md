@@ -47,6 +47,13 @@ node scripts/check-restore.mjs http://localhost:3101 <fichier.json>
 - Restauration dans une instance locale vierge (PGlite, base séparée, port 3101) avec `check-restore.mjs` : base vide au départ, 8 captures insérées, export identique champ par champ, second import 0 insérée et 8 ignorées.
 - Données de production inchangées : 8 captures avant et après le déploiement et la sauvegarde.
 
+## Vérification faite le 2026-11-19 (avant le volet Nutrition)
+
+- Version en production : `2babf1d`. Version à déployer : PR 16, branche `feat/nutrition` (`383668c`).
+- Sauvegarde réelle de la production, en lecture seule : 46 captures, 0 entrée Nutrition, 30 672 octets, sha256 `6a15082a…5209f6c1`, fichier `brain-capture-2026-11-19T10-52-16-224Z.json`.
+- Restauration dans une instance locale vierge (code de la branche, base en mémoire, port 3101) avec `check-restore.mjs` : base vide au départ, 46 captures insérées, identiques champ par champ, second import 0 insérée et 46 ignorées. Une sauvegarde écrite par la version actuelle se restaure donc telle quelle dans la nouvelle.
+- Aucune écriture de test en production.
+
 ## Coûts
 
 - Solution en place : **0 €**. Quelques Ko transférés par sauvegarde, stockage OneDrive existant.
