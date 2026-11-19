@@ -1,8 +1,8 @@
 # Brain Capture
 
-Private PWA to drop an idea, a task, a link or a job offer the moment it shows up (phone first), and find it sorted later on the desktop.
+Private PWA to drop an idea, a task, a link or a job offer the moment it shows up (phone first), and find it sorted later on the desktop. Three things come out of a capture, each in its own place: a note sorted into a category, an event for Google Calendar, or an entry of the Nutrition section (a meal, a workout, a weigh-in).
 
-One owner account, no sign-up. React + Vite on the front, Fastify + PostgreSQL (Drizzle) on the back, Groq for transcription (`whisper-large-v3-turbo`) and sorting (`openai/gpt-oss-20b`). Hosted on Railway: one app service, one PostgreSQL.
+One owner account, no sign-up. React + Vite on the front, Fastify + PostgreSQL (Drizzle) on the back, Groq for transcription (`whisper-large-v3-turbo`), sorting and reading (`openai/gpt-oss-20b`) and photos (`qwen/qwen3.8-27b`), all on its free plan. Hosted on Railway: one app service, one PostgreSQL.
 
 ## Run locally
 
@@ -32,6 +32,8 @@ npm run build
 
 `scripts/eval-new-category.ts` creates a category in an isolated in-memory instance and checks the real classifier sorts into it (same key, same cost).
 
+`scripts/eval-intent.ts` runs the real models on 44 captures (notes, calendar requests, meals, workouts, weights, ambiguous ones) and checks where each ends up; `scripts/eval-photo.ts <photos>` sends real photos to the vision model and prints the entry the card would show. Results: `docs/nutrition.md`.
+
 `scripts/eval-classify.ts` runs the real classifier on representative captures (needs a Groq key, costs a fraction of a cent):
 
 ```bash
@@ -50,6 +52,12 @@ npx tsx --env-file=<file with GROQ_API_KEY> scripts/eval-classify.ts
 Archive keeps a capture; **Delete** (next to Archive, in the desktop drawer and the phone's capture view, with a confirmation) removes it for good, with its project links and its calendar suggestion. An event already in Google Calendar is not touched. A small tombstone (`deleted_captures`: ids only, no content) keeps it from coming back: a phone resending it after a lost answer gets `410 capture_deleted` and drops its copy, the classification sweep has nothing left to retry, and restoring an older backup skips it.
 
 A calendar request is not a task: once its event is created in Google, the capture is deleted the same way (`docs/calendar-events.md`).
+
+## Nutrition
+
+A capture that reports something eaten or drunk, a sport session or a body weight is not a note: it goes to the Nutrition section and shows in no category, history, Today or counter. A card shows what was understood (foods, quantities, calories, macros), every value can be corrected, and one tap counts it in the day; "It's a note" sends it back among the notes when the detection was wrong, and "Log in Nutrition" on a note does the opposite. A photo (camera or gallery, with or without a sentence) is read the same way.
+
+Food values come from the Ciqual table (Anses), bundled with the app, from Open Food Facts when a brand is named, and from the model's own estimate when neither matches, which the entry then says. Everything is an estimate meant to give bearings. The section (`/nutrition`, phone and desktop) has the day (meals, workouts, totals, balance against an adjustable daily goal) and the trends (calories per day against the goal, weight curve, macro split). Details, sources and limits: `docs/nutrition.md`.
 
 ## Categories
 
@@ -75,12 +83,13 @@ Each script drives Chromium (`playwright-core`, pinned to the locally installed 
 | `check-desktop-bar.mjs` | Desktop quick bar and search: storage failure, double Enter, background save, refusals, line breaks, drawer errors |
 | `check-today.mjs` | Today: My day collapsed by default and remembered once expanded, both radar cards with six rows and the same height |
 | `check-categories-delete.mjs` | Categories created, renamed and deleted from the app; Delete with confirmation in the drawer and on the phone; the calendar hand-off removing the capture |
+| `check-nutrition.mjs` | A meal typed or photographed is never a note; the card corrected and confirmed, the day balance, edit and delete, the three charts, "It's a note" and "Log in Nutrition", on desktop and phone (isolated: in-memory database, stand-in model) |
 
-Without Playwright's own Chromium, `BROWSER_CHANNEL=chrome` (or `msedge`) runs `check-today.mjs` and `check-categories-delete.mjs` on an installed browser.
+Without Playwright's own Chromium, `BROWSER_CHANNEL=chrome` (or `msedge`) runs `check-today.mjs`, `check-categories-delete.mjs` and `check-nutrition.mjs` on an installed browser.
 
 ## Backup and restore
 
-Owner-level JSON export and import through the app (`GET /api/export`, `POST /api/import`); the import only adds missing captures. `scripts/backup.mjs` saves a file, `scripts/restore.mjs` restores one, `scripts/check-restore.mjs` proves a file restores field by field into an isolated local instance. Procedure, costs and limits: `docs/backup-restore.md`.
+Owner-level JSON export and import through the app (`GET /api/export`, `POST /api/import`); the import only adds what is missing. The file holds the captures, projects, categories and the Nutrition entries with the daily goal; a file from before the Nutrition section restores as it always did. `scripts/backup.mjs` saves a file, `scripts/restore.mjs` restores one, `scripts/check-restore.mjs` proves a file restores field by field into an isolated local instance. Procedure, costs and limits: `docs/backup-restore.md`.
 
 ## Deploy (test deployment on Railway)
 
@@ -100,10 +109,10 @@ The same version shows at the bottom of History (phone) and of the desktop sideb
 | --- | --- | --- |
 | `DATABASE_URL` | Railway (reference to the Postgres service) | `postgres://…` in production, `pglite:<dir>` locally |
 | `OWNER_EMAIL`, `OWNER_PASSWORD_HASH` | Railway | The single account, created or updated at boot. Changing the hash signs every device out. |
-| `GROQ_API_KEY` | Railway | Transcription, sorting and reading calendar requests |
+| `GROQ_API_KEY` | Railway | Transcription, sorting, reading calendar requests, meals, workouts and photos |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `CALENDAR_ENCRYPTION_KEY` | Railway | Google Calendar: dashboard reading, events added from captures |
 | `ALLOWED_ORIGINS` | local `.env` only | Extra origins allowed to send state-changing requests (the Vite dev proxy) |
-| `GROQ_TRANSCRIBE_MODEL`, `GROQ_CLASSIFY_MODEL` | optional | Model overrides |
+| `GROQ_TRANSCRIBE_MODEL`, `GROQ_CLASSIFY_MODEL`, `GROQ_VISION_MODEL` | optional | Model overrides |
 | `APP_VERSION` | Railway, set by the deploy | Commit shown in the app and returned by `/api/health` |
 | `NODE_ENV=production`, `NPM_CONFIG_INCLUDE=dev` | Railway | Production mode at runtime; build tools still installed for the build |
 

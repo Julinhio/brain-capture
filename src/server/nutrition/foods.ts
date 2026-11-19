@@ -113,9 +113,14 @@ export interface CiqualMatch {
   score: number;
 }
 
+// Everyday words the table files under another name: every pasta shape is "Pâtes" there.
+const ALIASES: Record<string, string> = Object.fromEntries(
+  ['spaghetti', 'tagliatell', 'penn', 'fusilli', 'coquillett', 'macaroni', 'linguin', 'farfall', 'rigatoni', 'torsad', 'nouill'].map((shape) => [shape, 'pat']),
+);
+
 /** Best Ciqual row for a French food name, or null when nothing is close enough. */
 export function matchCiqual(nameFr: string, estimateKcal?: number): CiqualMatch | null {
-  const query = foodTokens(nameFr);
+  const query = [...new Set(foodTokens(nameFr).map((t) => ALIASES[t] ?? t))];
   if (query.length === 0) return null;
   const q = new Set(query);
   const wantsCooked = query.some((t) => COOKED.has(t));
@@ -199,6 +204,9 @@ async function searchOff(fetchImpl: typeof fetch, query: FoodQuery): Promise<Foo
   });
   if (!res.ok) return null;
   const body = (await res.json()) as { products?: OffProduct[] };
+  // Several products carry the brand (plain, sweetened, a dessert...): the one nearest to the
+  // model's estimate is the likeliest to be what was meant.
+  let best: { match: FoodMatch; gap: number } | null = null;
   for (const product of body.products ?? []) {
     const per100 = offMacros(product);
     if (!per100) continue;
@@ -207,12 +215,13 @@ async function searchOff(fetchImpl: typeof fetch, query: FoodQuery): Promise<Foo
     // The brand that was said must be on the product, and the product must be in the same
     // league as the model's estimate (a "Coca-Cola" search also returns sweets and sauces).
     if (!brandTokens.some((t) => words.has(t))) continue;
-    if (kcalGap(per100.kcal, query.estimate.kcal) > 0.5) continue;
+    const gap = kcalGap(per100.kcal, query.estimate.kcal);
+    if (gap > MAX_KCAL_GAP || (best && best.gap <= gap)) continue;
     const name = typeof product.product_name === 'string' ? product.product_name.trim() : '';
     const brands = typeof product.brands === 'string' ? product.brands.split(',')[0]!.trim() : '';
-    return { per100, source: 'off', ref: [name, brands].filter(Boolean).join(' · ').slice(0, 200) || null };
+    best = { gap, match: { per100, source: 'off', ref: [name, brands].filter(Boolean).join(' · ').slice(0, 200) || null } };
   }
-  return null;
+  return best?.match ?? null;
 }
 
 /** `fetchImpl: null` turns the product search off (tests, or no outbound network). */

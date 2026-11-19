@@ -4,7 +4,7 @@
 
 Une sauvegarde au niveau de l'app : toutes les captures du compte, exportées en JSON par l'app elle-même (`GET /api/export`), et restaurables par l'app (`POST /api/import`). La base n'est jamais exposée hors du réseau privé de Railway ; tout passe par HTTPS et la session du compte.
 
-**Contenu d'une sauvegarde** : chaque capture avec tous ses champs (identifiant, texte corrigé et texte original, titre et s'il a été renommé, lien, catégorie et son origine, statut, durée, appareil, dates), les projets et leurs liens, et les catégories du compte (nom et description, voir `docs/categories.md`). Pas d'audio (il n'est jamais conservé). Pas de mot de passe ni de session : le compte est recréé depuis les variables Railway (`OWNER_EMAIL`, `OWNER_PASSWORD_HASH`).
+**Contenu d'une sauvegarde** : chaque capture avec tous ses champs (identifiant, texte corrigé et texte original, titre et s'il a été renommé, lien, catégorie et son origine, statut, durée, appareil, dates), les projets et leurs liens, les catégories du compte (nom et description, voir `docs/categories.md`), et les données Nutrition : chaque repas, séance et pesée, validé ou non, avec ses aliments, quantités et valeurs telles qu'affichées, plus l'objectif quotidien (voir `docs/nutrition.md`). Pas d'audio (il n'est jamais conservé) ni de miniatures de photos : la sauvegarde reste un petit fichier. Pas de mot de passe ni de session : le compte est recréé depuis les variables Railway (`OWNER_EMAIL`, `OWNER_PASSWORD_HASH`).
 
 **Où** : dans `C:\Users\julin\OneDrive\Documents\dev-secrets\brain-capture\backups\`. Dossier privé, hors du dépôt, synchronisé par OneDrive (copie hors de Railway et hors du PC). Les 30 plus récentes sont gardées.
 
@@ -24,6 +24,8 @@ La commande affiche le fichier écrit, le nombre de captures et une empreinte sh
 ## Restaurer
 
 L'import **ajoute seulement ce qui manque** : une capture déjà présente (même identifiant) n'est jamais écrasée, rien n'est supprimé. Rejouer le même fichier est sans effet. Une capture **supprimée volontairement** depuis la sauvegarde (bouton Delete, ou devenue événement d'agenda) n'est pas réimportée : la réponse la compte dans `deleted`. Une capture dont la catégorie n'existe plus arrive dans Other.
+
+Les entrées Nutrition suivent la même règle : ajoutées si elles manquent, jamais écrasées, et une entrée supprimée depuis reste supprimée. Une capture ne vit qu'à un endroit : une note reconnue comme repas depuis la sauvegarde ne revient pas en note, et une entrée passée en note depuis ne revient pas en entrée. L'objectif n'est restauré que si le compte n'en a pas. **Une sauvegarde d'avant le volet Nutrition se restaure comme avant** (elle n'a simplement pas de partie `nutrition`). `check-restore.mjs` compare aussi les entrées Nutrition champ par champ quand le fichier en contient.
 
 - **Des captures ont disparu** : restaurer la dernière sauvegarde dans l'app en ligne, elles reviennent avec leurs identifiants et leurs dates.
 

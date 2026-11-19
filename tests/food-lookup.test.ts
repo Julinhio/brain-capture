@@ -31,6 +31,8 @@ describe('matching a food said in French', () => {
     expect(name('yaourt nature', 60)).toMatch(/^Yaourt ou lait fermenté, nature/);
     expect(name('boeuf steak haché cuit', 230)).toMatch(/^Boeuf, steak haché.*cuit/);
     expect(name('lentilles cuites', 115)).toMatch(/^Lentille/);
+    // A pasta shape is pasta.
+    expect(name('spaghetti cuits', 150)).toMatch(/^Pâtes sèches, standard, cuites/);
   });
 
   it('is not fooled by a look-alike name', () => {
