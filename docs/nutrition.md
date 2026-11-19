@@ -223,10 +223,10 @@ minute) : c’est le cas « deux photos par minute » décrit plus haut, que l�
 renvoyant seule.
 
 Le classement des notes par catégorie n’a pas bougé : la question « intent » est posée après
-les règles de tri, qui se lisent comme avant.  donne 20 sur 22
-exacts et 21 sur 22 acceptables, contre 21 et 22 avec le prompt de  le même jour. Le
+les règles de tri, qui se lisent comme avant. `scripts/eval-classify.ts` donne 20 sur 22
+exacts et 21 sur 22 acceptables, contre 21 et 22 avec le prompt de `main` le même jour. Le
 cas qui diffère (« Brain Capture : ajouter un digest le dimanche… ») est instable dans les
-deux versions : rejoué cinq fois, il sort juste 2 fois avec le prompt de  et 4 fois
+deux versions : rejoué cinq fois, il sort juste 2 fois avec le prompt de `main` et 4 fois
 avec le nouveau.
 
 ### Tests
