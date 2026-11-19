@@ -171,7 +171,7 @@ async function main() {
     const balanced = (await dayData()).totals;
     if (balanced.goal !== 2300 || balanced.burned <= 0 || balanced.remaining !== 2300 - balanced.eaten.kcal + balanced.burned) throw new Error('balance');
     proofs.balance = balanced;
-    await page.screenshot({ path: '.shots/nutrition-desktop-day-confirmed.png', fullPage: true });
+    await page.screenshot({ path: '.shots/nutrition-desktop-day-confirmed.png' });
 
     // 4. An entry is edited and deleted from the day.
     await page.getByRole('button', { name: /Vélo 45 min/ }).click();

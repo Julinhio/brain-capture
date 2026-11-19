@@ -151,8 +151,12 @@ Pas dans cette version : les projections de poids (`docs/future-improvements.md`
   que les captures. Un renvoi après une réponse perdue retrouve la même entrée sans nouvel
   appel au modèle ; une entrée supprimée ne revient pas.
 - **Ancienne version de l’app** encore en cache : elle n’annonce pas qu’elle connaît
-  Nutrition, le serveur lui rend donc sa note comme avant. La mise à jour de l’app se fait
-  seule à l’ouverture suivante.
+  Nutrition. Le serveur lui rend donc sa note comme avant, et cette note reste une note, y
+  compris pour la relance automatique (elle ne part pas là où cette version ne peut pas la
+  montrer). « Log in Nutrition » reste possible depuis l’app à jour, qui se met à jour seule
+  à l’ouverture suivante.
+- **Texte corrigé** : une note dont la transcription a été corrigée à la main est relue telle
+  qu’elle se lit maintenant, et la correction est gardée avec l’entrée.
 - **Tables** (migration `0005_nutrition`, qui ne fait qu’ajouter) : `nutrition_entries`,
   `nutrition_photos` (miniatures), `nutrition_settings` (objectif), et trois colonnes sur
   `captures` (heure et fuseau du téléphone, marque « gardée comme note »).
@@ -218,6 +222,13 @@ La quatrième photo envoyée dans la même minute a reçu un 429 de Groq (limite
 minute) : c’est le cas « deux photos par minute » décrit plus haut, que l’app rattrape en
 renvoyant seule.
 
+Le classement des notes par catégorie n’a pas bougé : la question « intent » est posée après
+les règles de tri, qui se lisent comme avant.  donne 20 sur 22
+exacts et 21 sur 22 acceptables, contre 21 et 22 avec le prompt de  le même jour. Le
+cas qui diffère (« Brain Capture : ajouter un digest le dimanche… ») est instable dans les
+deux versions : rejoué cinq fois, il sort juste 2 fois avec le prompt de  et 4 fois
+avec le nouveau.
+
 ### Tests
 
 `npm test` : routage des intentions (`tests/intent-routing.test.ts`), entrées, photo, bilan,
@@ -232,7 +243,8 @@ ordinateur et sur téléphone, base isolée en mémoire.
 | Ordinateur | Téléphone |
 | --- | --- |
 | ![Vue du jour](references/nutrition-desktop-day.jpg) | ![Vue du jour](references/nutrition-mobile-day.png) |
-| ![Tendances](references/nutrition-desktop-trends.jpg) | ![Carte après une photo](references/nutrition-mobile-card.png) |
+| ![Une entrée à confirmer](references/nutrition-desktop-to-confirm.jpg) | ![Carte après une photo](references/nutrition-mobile-card.png) |
+| ![Tendances](references/nutrition-desktop-trends.jpg) | ![Tendances](references/nutrition-mobile-trends.png) |
 
 ## Limites
 
