@@ -4,12 +4,13 @@ import { CATEGORY_ID_RE } from '../../shared/categories.js';
 import { extractUrl, normalizeUrl, removeLinkFromNote } from '../../shared/text.js';
 import type { CaptureStatus } from '../../shared/types.js';
 import { AiRejectedError, type AiUnavailableError } from '../ai/types.js';
-import type { AppDeps } from '../app.js';
+import type { Deps } from '../app.js';
 import { categoryExists } from './categories.js';
 import { captureContext, proposeEvent } from './event.js';
 import { sendError } from '../http.js';
+import { findEntryByClientId, toEntry } from '../nutrition/service.js';
+import { sortCapture } from './sort.js';
 import {
-  classifyCapture,
   decodeCursor,
   deleteCapture,
   findByClientId,
@@ -34,6 +35,9 @@ const createSchema = z.object({
   // The phone's clock (epoch ms) and IANA zone when the capture was made, for relative dates.
   capturedAt: z.number().int().optional(),
   timeZone: z.string().max(100).optional(),
+  // Sent by app versions that know the Nutrition section: only they may get a Nutrition entry
+  // back instead of a capture. An older cached app keeps receiving its note.
+  nutrition: z.boolean().optional(),
 });
 
 const patchSchema = z
@@ -65,11 +69,12 @@ const voiceSchema = z.object({
   device: z.string().max(40).optional(),
   capturedAt: z.coerce.number().int().optional(),
   timeZone: z.string().max(100).optional(),
+  nutrition: z.enum(['0', '1']).optional(),
 });
 
 const DELETED_MESSAGE = 'This capture was deleted. It will not be saved again.';
 
-export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps): void {
+export function registerCaptureRoutes(app: FastifyInstance, { db, ai, foods }: Deps): void {
   app.get('/api/captures', async (req, reply) => {
     const query = listQuery.safeParse(req.query);
     if (!query.success) return sendError(reply, 400, 'invalid_input', 'Invalid list filter.');
@@ -123,23 +128,32 @@ export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps)
       return sendError(reply, 410, 'capture_deleted', DELETED_MESSAGE);
     }
 
+    const context = captureContext(input.capturedAt, input.timeZone);
     const saved = await insertCapture(db, req.user!.id, {
       clientId: input.clientId,
       kind: input.kind,
       text: note,
       url,
       device: input.device ?? null,
+      capturedAt: context.reference,
+      timeZone: context.timeZone,
     });
     if (saved.deleted) return sendError(reply, 410, 'capture_deleted', DELETED_MESSAGE);
+    // Already recognised as a meal, a workout or a weigh-in on an earlier attempt.
+    if (saved.entry) return reply.code(200).send({ nutrition: toEntry(saved.entry), created: false });
     const { row, created } = saved;
     // The row is committed before the model is asked anything: a classification failure
-    // can only leave the capture under Other, never lose it. An explicit calendar request is
-    // read at the same time; that step never fails the save either.
-    const [final] = await Promise.all([
-      row.classificationStatus === 'done' ? row : classifyCapture(db, ai, row),
-      proposeEvent(db, ai, row, captureContext(input.capturedAt, input.timeZone), req.log),
+    // can only leave the capture under Other, never lose it. The model then says what it is: a
+    // note is sorted into a category, a meal, a workout or a weigh-in leaves for Nutrition. An
+    // explicit calendar request is read at the same time; that step never fails the save either.
+    const [sorted] = await Promise.all([
+      row.classificationStatus === 'done'
+        ? ({ kind: 'capture', row } as const)
+        : sortCapture({ db, ai, foods }, row, { nutrition: input.nutrition === true, log: req.log }),
+      proposeEvent(db, ai, row, context, req.log),
     ]);
-    return reply.code(created ? 201 : 200).send({ capture: toCapture(final), created });
+    if (sorted.kind === 'nutrition') return reply.code(created ? 201 : 200).send({ nutrition: toEntry(sorted.row), created });
+    return reply.code(created ? 201 : 200).send({ capture: toCapture(sorted.row), created });
   });
 
   /**
@@ -162,10 +176,13 @@ export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps)
     const parsed = voiceSchema.safeParse(fields);
     if (!parsed.success) return sendError(reply, 400, 'invalid_input', 'This recording is not valid.');
     const { clientId, durationMs, device, capturedAt, timeZone } = parsed.data;
+    const routesNutrition = parsed.data.nutrition === '1';
 
     // A retry of an upload that already went through: no second transcription, no duplicate.
     const existing = await findByClientId(db, req.user!.id, clientId);
     if (existing) return reply.code(200).send({ capture: toCapture(existing), created: false });
+    const logged = await findEntryByClientId(db, req.user!.id, clientId);
+    if (logged) return reply.code(200).send({ nutrition: toEntry(logged), created: false });
     if (await findDeletedByClientId(db, req.user!.id, clientId)) {
       return sendError(reply, 410, 'capture_deleted', DELETED_MESSAGE);
     }
@@ -196,6 +213,7 @@ export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps)
 
     // Deleted while it was being transcribed (an overlapping retry of an upload that went
     // through): the insert sees the tombstone under the same lock and stores nothing.
+    const context = captureContext(capturedAt, timeZone);
     const saved = await insertCapture(db, req.user!.id, {
       clientId,
       kind: 'voice',
@@ -203,14 +221,20 @@ export function registerCaptureRoutes(app: FastifyInstance, { db, ai }: AppDeps)
       url: null,
       durationMs,
       device: device ?? null,
+      capturedAt: context.reference,
+      timeZone: context.timeZone,
     });
     if (saved.deleted) return sendError(reply, 410, 'capture_deleted', DELETED_MESSAGE);
+    if (saved.entry) return reply.code(200).send({ nutrition: toEntry(saved.entry), created: false });
     const { row, created } = saved;
-    const [final] = await Promise.all([
-      row.classificationStatus === 'done' ? row : classifyCapture(db, ai, row),
-      proposeEvent(db, ai, row, captureContext(capturedAt, timeZone), req.log),
+    const [sorted] = await Promise.all([
+      row.classificationStatus === 'done'
+        ? ({ kind: 'capture', row } as const)
+        : sortCapture({ db, ai, foods }, row, { nutrition: routesNutrition, log: req.log }),
+      proposeEvent(db, ai, row, context, req.log),
     ]);
-    return reply.code(created ? 201 : 200).send({ capture: toCapture(final), created });
+    if (sorted.kind === 'nutrition') return reply.code(created ? 201 : 200).send({ nutrition: toEntry(sorted.row), created });
+    return reply.code(created ? 201 : 200).send({ capture: toCapture(sorted.row), created });
   });
 
   app.patch('/api/captures/:id', async (req, reply) => {

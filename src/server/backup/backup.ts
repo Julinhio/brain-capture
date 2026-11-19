@@ -5,7 +5,18 @@ import { z } from 'zod';
 import { CATEGORY_ID_RE, DEFAULT_CATEGORIES, OTHER } from '../../shared/categories.js';
 import type { AppDeps } from '../app.js';
 import type { Db } from '../db/client.js';
-import { captures, categories, deletedCaptures, projects, projectCaptures, type CaptureRow } from '../db/schema.js';
+import {
+  captures,
+  categories,
+  deletedCaptures,
+  nutritionEntries,
+  nutritionSettings,
+  projects,
+  projectCaptures,
+  type CaptureRow,
+  type NutritionEntryRow,
+} from '../db/schema.js';
+import { MAX_KCAL_GOAL, MIN_KCAL_GOAL, cleanData, isDay } from '../../shared/nutrition.js';
 import { lockClientId } from '../captures/service.js';
 import { PROJECT_STATES } from '../../shared/dashboard.js';
 import { sendError } from '../http.js';
@@ -48,6 +59,28 @@ const exportedCapture = z.object({
 });
 export type ExportedCapture = z.infer<typeof exportedCapture>;
 
+// Nutrition entries: what was eaten, done and weighed, with the values as they were shown.
+// The meal thumbnails are not part of a backup (like audio, a picture is not the record).
+const exportedEntry = z.object({
+  id: z.uuid(),
+  clientId: z.uuid(),
+  type: z.enum(['meal', 'workout', 'weight']),
+  status: z.enum(['proposed', 'confirmed']),
+  source: z.enum(['voice', 'text', 'photo', 'manual']),
+  day: z.string().refine(isDay),
+  occurredAt: z.iso.datetime(),
+  timeZone: z.string().max(100),
+  title: z.string().max(10_000),
+  originalText: z.string().max(1_000_000),
+  // Checked against its type at import (cleanData), like an edit coming from the app.
+  data: z.unknown(),
+  durationMs: z.number().int().min(0).nullable(),
+  device: z.string().max(200).nullable(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+export type ExportedEntry = z.infer<typeof exportedEntry>;
+
 const exportFile = z.object({
   format: z.literal(EXPORT_FORMAT),
   version: z.literal(EXPORT_VERSION),
@@ -70,6 +103,13 @@ const exportFile = z.object({
     )
     .max(1000)
     .default([]),
+  // Additive as well: files from before the Nutrition section simply have none.
+  nutrition: z
+    .object({
+      entries: z.array(exportedEntry).max(100_000).default([]),
+      settings: z.object({ kcalGoal: z.number().int().min(MIN_KCAL_GOAL).max(MAX_KCAL_GOAL) }).nullable().default(null),
+    })
+    .default({ entries: [], settings: null }),
 });
 
 function toExported(row: CaptureRow): ExportedCapture {
@@ -129,6 +169,14 @@ export async function importCaptures(
       deleted += 1;
       continue;
     }
+    // Recognised as a meal, a workout or a weigh-in since the backup: it lives in Nutrition
+    // now, and must not come back as a note as well.
+    const [logged] = await db
+      .select({ id: nutritionEntries.id })
+      .from(nutritionEntries)
+      .where(and(eq(nutritionEntries.ownerId, ownerId), or(eq(nutritionEntries.id, c.id), eq(nutritionEntries.clientId, c.clientId))))
+      .limit(1);
+    if (logged) continue;
     const result = await db
       .insert(captures)
       .values({
@@ -158,6 +206,96 @@ export async function importCaptures(
     inserted += result.length;
   }
   return { inserted, skipped: items.length - inserted - deleted, deleted };
+}
+
+function toExportedEntry(row: NutritionEntryRow): ExportedEntry {
+  return {
+    id: row.id,
+    clientId: row.clientId,
+    type: row.type,
+    status: row.status,
+    source: row.source,
+    day: row.day,
+    occurredAt: row.occurredAt.toISOString(),
+    timeZone: row.timeZone,
+    title: row.title,
+    originalText: row.originalText,
+    data: row.data,
+    durationMs: row.durationMs,
+    device: row.device,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+export async function exportNutrition(db: Db, ownerId: string): Promise<{ entries: ExportedEntry[]; settings: { kcalGoal: number } | null }> {
+  const rows = await db
+    .select()
+    .from(nutritionEntries)
+    .where(eq(nutritionEntries.ownerId, ownerId))
+    .orderBy(asc(nutritionEntries.occurredAt), asc(nutritionEntries.id));
+  const [settings] = await db.select().from(nutritionSettings).where(eq(nutritionSettings.ownerId, ownerId));
+  return { entries: rows.map(toExportedEntry), settings: settings ? { kcalGoal: settings.kcalGoal } : null };
+}
+
+/**
+ * Same rule as captures: adds what is missing, overwrites and deletes nothing. An entry deleted
+ * for good since the backup stays deleted; one that became a note since stays a note. The goal
+ * is only restored when the account has none.
+ */
+export async function importNutrition(
+  db: Db,
+  ownerId: string,
+  nutrition: { entries: ExportedEntry[]; settings: { kcalGoal: number } | null },
+): Promise<{ inserted: number; skipped: number; deleted: number }> {
+  let inserted = 0;
+  let deleted = 0;
+  for (const e of nutrition.entries) {
+    const data = cleanData(e.type, e.data);
+    if (!data) continue;
+    await lockClientId(db, ownerId, e.clientId);
+    const [gone] = await db
+      .select({ id: deletedCaptures.captureId })
+      .from(deletedCaptures)
+      .where(and(eq(deletedCaptures.ownerId, ownerId), or(eq(deletedCaptures.captureId, e.id), eq(deletedCaptures.clientId, e.clientId))))
+      .limit(1);
+    if (gone) {
+      deleted += 1;
+      continue;
+    }
+    const [note] = await db
+      .select({ id: captures.id })
+      .from(captures)
+      .where(and(eq(captures.ownerId, ownerId), or(eq(captures.id, e.id), eq(captures.clientId, e.clientId))))
+      .limit(1);
+    if (note) continue;
+    const result = await db
+      .insert(nutritionEntries)
+      .values({
+        id: e.id,
+        ownerId,
+        clientId: e.clientId,
+        type: e.type,
+        status: e.status,
+        source: e.source,
+        day: e.day,
+        occurredAt: new Date(e.occurredAt),
+        timeZone: e.timeZone,
+        title: e.title,
+        originalText: e.originalText,
+        data,
+        hasPhoto: false,
+        durationMs: e.durationMs,
+        device: e.device,
+        createdAt: new Date(e.createdAt),
+        updatedAt: new Date(e.updatedAt),
+      })
+      .onConflictDoNothing()
+      .returning({ id: nutritionEntries.id });
+    inserted += result.length;
+  }
+  if (nutrition.settings) await db.insert(nutritionSettings).values({ ownerId, kcalGoal: nutrition.settings.kcalGoal }).onConflictDoNothing();
+  return { inserted, skipped: nutrition.entries.length - inserted - deleted, deleted };
 }
 
 type ExportedCategory = z.infer<typeof exportFile>['categories'][number];
@@ -234,6 +372,7 @@ export function registerBackupRoutes(app: FastifyInstance, { db, config }: AppDe
         .innerJoin(projects, eq(projects.id, projectCaptures.projectId)).innerJoin(captures, eq(captures.id, projectCaptures.captureId))
         .where(and(eq(projects.ownerId, req.user!.id), eq(captures.ownerId, req.user!.id)))
         .orderBy(asc(projectCaptures.projectId), asc(projectCaptures.captureId)),
+      nutrition: await exportNutrition(db, req.user!.id),
     };
     if ((req.query as { download?: string }).download === '1') {
       const stamp = exportedAt.slice(0, 16).replace(/[:T]/g, '-');
@@ -259,7 +398,7 @@ export function registerBackupRoutes(app: FastifyInstance, { db, config }: AppDe
         const [capture] = await tx.select({ id: captures.id }).from(captures).where(and(eq(captures.ownerId, ownerId), original ? or(eq(captures.id, link.captureId), eq(captures.clientId, original.clientId)) : eq(captures.id, link.captureId)));
         if (project && capture) await tx.insert(projectCaptures).values({ projectId: project.id, captureId: capture.id }).onConflictDoNothing();
       }
-      return result;
+      return { ...result, nutrition: await importNutrition(tx as unknown as Db, ownerId, parsed.data.nutrition) };
     });
     return { ...result, total: parsed.data.captures.length };
   });

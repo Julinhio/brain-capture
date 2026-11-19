@@ -1,5 +1,9 @@
 import type { Category, CategoryInfo } from '../../shared/categories.js';
+import type { MealSlot } from '../../shared/nutrition.js';
 import type { CaptureKind } from '../../shared/types.js';
+
+/** What a capture is: a note (sorted into a category), or something for the Nutrition section. */
+export type CaptureIntent = 'note' | 'meal' | 'workout' | 'weight';
 
 export interface ClassifyInput {
   kind: CaptureKind;
@@ -12,6 +16,59 @@ export interface ClassifyInput {
 export interface ClassifyResult {
   category: Category;
   title: string;
+  /**
+   * A first reading only: a meal, workout or weight is then read in full by extractNutrition,
+   * which has the last word. Absent means a note.
+   */
+  intent?: CaptureIntent;
+}
+
+export interface NutritionExtractInput {
+  text: string;
+  /** When the capture was made, on the phone, and its zone: "hier soir" is read from them. */
+  reference: Date;
+  timeZone: string;
+}
+
+export interface PhotoInput {
+  image: Buffer;
+  mimeType: string;
+  /** The optional sentence typed with the photo. */
+  caption: string;
+  reference: Date;
+  timeZone: string;
+}
+
+export interface ExtractedFood {
+  name: string;
+  /** Generic French name, for the food table lookup. */
+  nameFr: string;
+  brand: string | null;
+  grams: number;
+  /** The model's own estimate per 100 g: the fallback, and the sanity check of a table match. */
+  kcal100: number;
+  protein100: number;
+  carbs100: number;
+  fat100: number;
+}
+
+/** The model's answer, already bounded (see nutrition-prompt.ts), before any food lookup. */
+export interface NutritionExtraction {
+  type: 'meal' | 'workout' | 'weight' | 'none';
+  /** 0 = the day of the capture, -1 = the day before. */
+  dayOffset: number;
+  title: string;
+  slot: MealSlot | null;
+  items: ExtractedFood[];
+  activity: string | null;
+  minutes: number | null;
+  met: number | null;
+  /** Calories burned when the note or the screen gives them. */
+  kcal: number | null;
+  kg: number | null;
+  /** Photos: what the picture shows, and the text read in it when it is not for Nutrition. */
+  description: string;
+  text: string;
 }
 
 export interface EventExtractInput {
@@ -46,6 +103,8 @@ export interface Ai {
   transcribe(input: TranscribeInput): Promise<{ text: string }>;
   classify(input: ClassifyInput): Promise<ClassifyResult>;
   extractEvent(input: EventExtractInput): Promise<EventExtraction>;
+  extractNutrition(input: NutritionExtractInput): Promise<NutritionExtraction>;
+  readPhoto(input: PhotoInput): Promise<NutritionExtraction>;
 }
 
 /** What the provider said when it refused a request (short, safe to log and to show). */

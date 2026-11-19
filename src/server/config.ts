@@ -5,6 +5,7 @@ export interface Config {
   groqApiKey: string | null;
   transcribeModel: string;
   classifyModel: string;
+  visionModel: string;
   ownerEmail: string | null;
   ownerPasswordHash: string | null;
   /** Commit of the running build, set by the deploy (APP_VERSION); "dev" otherwise. */
@@ -55,6 +56,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     groqApiKey: env.GROQ_API_KEY?.trim() || null,
     transcribeModel: env.GROQ_TRANSCRIBE_MODEL?.trim() || 'whisper-large-v3-turbo',
     classifyModel: env.GROQ_CLASSIFY_MODEL?.trim() || 'openai/gpt-oss-20b',
+    visionModel: env.GROQ_VISION_MODEL?.trim() || 'qwen/qwen3.8-27b',
     ownerEmail,
     ownerPasswordHash,
     appVersion: env.APP_VERSION?.trim() || 'dev',

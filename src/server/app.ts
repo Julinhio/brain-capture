@@ -21,6 +21,8 @@ import { registerProjectRoutes } from './dashboard/projects.js';
 import { registerRadarRoutes } from './dashboard/radars.js';
 import { registerCalendarRoutes } from './dashboard/calendar.js';
 import { registerPublicPages } from './public-pages.js';
+import { createFoodLookup, type FoodLookup } from './nutrition/foods.js';
+import { registerNutritionRoutes } from './nutrition/routes.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -32,15 +34,20 @@ export interface AppDeps {
   db: Db;
   ai: Ai;
   config: Config;
+  /** Where food values come from; built here when not given (no product search in tests). */
+  foods?: FoodLookup;
   /** Directory with the built web app; served with an SPA fallback when present. */
   webDir?: string;
   logger?: boolean;
 }
 
+export type Deps = AppDeps & { foods: FoodLookup };
+
 const PUBLIC_API = new Set(['/api/auth/login', '/api/health']);
 
-export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
-  const { db, config } = deps;
+export async function buildApp(input: AppDeps): Promise<FastifyInstance> {
+  const { db, config } = input;
+  const deps: Deps = { ...input, foods: input.foods ?? createFoodLookup({ fetchImpl: config.env === 'test' ? null : undefined }) };
   const app = Fastify({
     trustProxy: config.env === 'production',
     bodyLimit: 1024 * 1024,
@@ -135,6 +142,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   registerProjectRoutes(app, deps);
   registerRadarRoutes(app, deps);
   registerCalendarRoutes(app, deps);
+  registerNutritionRoutes(app, deps);
   registerPublicPages(app);
 
   app.setErrorHandler((err: Error & { statusCode?: number; validation?: unknown }, req, reply) => {

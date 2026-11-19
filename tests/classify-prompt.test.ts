@@ -8,6 +8,7 @@ const withSante = [...DEFAULT_CATEGORIES, { id: 'sante', name: 'Santé', descrip
 describe('parseClassifyResponse', () => {
   it('accepts a clean answer', () => {
     expect(parseClassifyResponse('{"category":"jobs","title":"Automation Lead at Qonto"}', DEFAULT_CATEGORIES)).toEqual({
+      intent: 'note',
       category: 'jobs',
       title: 'Automation Lead at Qonto',
     });
@@ -15,6 +16,7 @@ describe('parseClassifyResponse', () => {
 
   it('normalizes case and quotes', () => {
     expect(parseClassifyResponse('{"category":" Automata ","title":"« Pitch conciergerie »"}', DEFAULT_CATEGORIES)).toEqual({
+      intent: 'note',
       category: 'automata',
       title: 'Pitch conciergerie',
     });
@@ -28,7 +30,7 @@ describe('parseClassifyResponse', () => {
   );
 
   it('accepts a category added by Julien, by id or by its name, and nothing outside the list', () => {
-    expect(parseClassifyResponse('{"category":"sante","title":"Kiné jeudi"}', withSante)).toEqual({ category: 'sante', title: 'Kiné jeudi' });
+    expect(parseClassifyResponse('{"category":"sante","title":"Kiné jeudi"}', withSante)).toEqual({ intent: 'note', category: 'sante', title: 'Kiné jeudi' });
     expect(parseClassifyResponse('{"category":"Santé","title":"Kiné jeudi"}', withSante)).toMatchObject({ category: 'sante' });
     // Deleted since: not in the list given to the parser any more.
     expect(parseClassifyResponse('{"category":"sante","title":"Kiné jeudi"}', DEFAULT_CATEGORIES)).toBeNull();

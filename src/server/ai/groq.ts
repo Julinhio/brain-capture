@@ -1,5 +1,6 @@
 import { buildClassifyMessages, parseClassifyResponse } from './classify-prompt.js';
 import { buildEventMessages, parseEventResponse } from './event-prompt.js';
+import { buildNutritionMessages, buildPhotoMessages, parseNutritionResponse } from './nutrition-prompt.js';
 import {
   AiRejectedError,
   AiUnavailableError,
@@ -8,19 +9,27 @@ import {
   type ClassifyResult,
   type EventExtractInput,
   type EventExtraction,
+  type NutritionExtractInput,
+  type NutritionExtraction,
+  type PhotoInput,
   type ProviderErrorDetail,
   type TranscribeInput,
 } from './types.js';
 
 const GROQ_BASE = 'https://api.groq.com/openai/v1';
+export const DEFAULT_VISION_MODEL = 'qwen/qwen3.8-27b';
 const TRANSCRIBE_TIMEOUT_MS = 90_000;
 const CLASSIFY_TIMEOUT_MS = 20_000;
 const EVENT_TIMEOUT_MS = 25_000;
+const NUTRITION_TIMEOUT_MS = 25_000;
+const PHOTO_TIMEOUT_MS = 45_000;
 
 interface GroqOptions {
   apiKey: string;
   transcribeModel: string;
   classifyModel: string;
+  /** Reads photos. The only vision model on Groq's free plan (November 2026). */
+  visionModel?: string;
   fetchImpl?: typeof fetch;
 }
 
@@ -137,6 +146,43 @@ export function createGroqAi(options: GroqOptions): Ai {
       if (!result) throw new AiUnavailableError('Groq event extraction returned an unusable answer');
       return result;
     },
+
+    async extractNutrition(input: NutritionExtractInput): Promise<NutritionExtraction> {
+      const body = JSON.stringify({
+        model: options.classifyModel,
+        messages: buildNutritionMessages(input),
+        response_format: { type: 'json_object' },
+        reasoning_effort: 'low',
+        max_completion_tokens: 2500,
+      });
+      const data = (await groqFetch(fetchImpl, options.apiKey, '/chat/completions', body, NUTRITION_TIMEOUT_MS, {
+        'Content-Type': 'application/json',
+      })) as { choices?: { message?: { content?: unknown } }[] };
+      const content = data.choices?.[0]?.message?.content;
+      const result = typeof content === 'string' ? parseNutritionResponse(content) : null;
+      if (!result) throw new AiUnavailableError('Groq nutrition extraction returned an unusable answer');
+      return result;
+    },
+
+    async readPhoto(input: PhotoInput): Promise<NutritionExtraction> {
+      const body = JSON.stringify({
+        model: options.visionModel ?? DEFAULT_VISION_MODEL,
+        messages: buildPhotoMessages(input),
+        response_format: { type: 'json_object' },
+        // Instruct mode: looking and listing needs no reasoning pass, and stays within the
+        // free plan's tokens per minute (a picture alone counts for about 2,000).
+        reasoning_effort: 'none',
+        temperature: 0.2,
+        max_completion_tokens: 1800,
+      });
+      const data = (await groqFetch(fetchImpl, options.apiKey, '/chat/completions', body, PHOTO_TIMEOUT_MS, {
+        'Content-Type': 'application/json',
+      })) as { choices?: { message?: { content?: unknown } }[] };
+      const content = data.choices?.[0]?.message?.content;
+      const result = typeof content === 'string' ? parseNutritionResponse(content) : null;
+      if (!result) throw new AiUnavailableError('Groq photo reading returned an unusable answer');
+      return result;
+    },
   };
 }
 
@@ -152,6 +198,12 @@ export function createUnavailableAi(): Ai {
     },
     async extractEvent() {
       throw new AiUnavailableError('Event extraction is not configured (GROQ_API_KEY missing)');
+    },
+    async extractNutrition() {
+      throw new AiUnavailableError('Nutrition reading is not configured (GROQ_API_KEY missing)');
+    },
+    async readPhoto() {
+      throw new AiUnavailableError('Photo reading is not configured (GROQ_API_KEY missing)');
     },
   };
 }

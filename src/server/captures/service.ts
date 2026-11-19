@@ -2,9 +2,9 @@ import { and, desc, eq, gt, ilike, inArray, lt, ne, or, sql } from 'drizzle-orm'
 import { byCategory, type Category } from '../../shared/categories.js';
 import { fallbackTitle } from '../../shared/text.js';
 import type { Capture, CaptureKind, CaptureStatus } from '../../shared/types.js';
-import type { Ai } from '../ai/types.js';
+import type { Ai, ClassifyResult } from '../ai/types.js';
 import type { Db } from '../db/client.js';
-import { captures, deletedCaptures, type CaptureRow, type DeletedCaptureRow } from '../db/schema.js';
+import { captures, deletedCaptures, nutritionEntries, type CaptureRow, type DeletedCaptureRow, type NutritionEntryRow } from '../db/schema.js';
 import { listCategories } from './categories.js';
 
 export const MAX_CLASSIFICATION_ATTEMPTS = 3;
@@ -38,6 +38,11 @@ export interface NewCapture {
   url: string | null;
   durationMs?: number | null;
   device?: string | null;
+  /** The phone's clock and zone at capture time, when the app sent them. */
+  capturedAt?: Date | null;
+  timeZone?: string | null;
+  /** A note for good: sorting never sends it to Nutrition (see captures.keptAsNote). */
+  keptAsNote?: boolean;
 }
 
 /**
@@ -53,7 +58,14 @@ export async function lockClientId(tx: Db, ownerId: string, clientId: string): P
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`capture:${ownerId}:${clientId}`}))`);
 }
 
-export type InsertResult = { row: CaptureRow; created: boolean; deleted?: false } | { row: null; created: false; deleted: true };
+/**
+ * `entry`: this device id already belongs to a Nutrition entry (the capture was recognised as a
+ * meal, a workout or a weigh-in and left the notes). The retry gets that entry, not a new note.
+ */
+export type InsertResult =
+  | { row: CaptureRow; created: boolean; deleted?: false; entry?: undefined }
+  | { row: null; created: false; deleted: true; entry?: undefined }
+  | { row: null; created: false; deleted?: false; entry: NutritionEntryRow };
 
 export async function insertCapture(db: Db, ownerId: string, input: NewCapture): Promise<InsertResult> {
   return db.transaction(async (txn) => {
@@ -61,6 +73,12 @@ export async function insertCapture(db: Db, ownerId: string, input: NewCapture):
     await lockClientId(tx, ownerId, input.clientId);
     // Deleted for good already: never stored again.
     if (await findDeletedByClientId(tx, ownerId, input.clientId)) return { row: null, created: false, deleted: true } as const;
+    const [entry] = await tx
+      .select()
+      .from(nutritionEntries)
+      .where(and(eq(nutritionEntries.ownerId, ownerId), eq(nutritionEntries.clientId, input.clientId)))
+      .limit(1);
+    if (entry) return { row: null, created: false, entry } as const;
     return insertLocked(tx, ownerId, input);
   });
 }
@@ -78,6 +96,9 @@ async function insertLocked(db: Db, ownerId: string, input: NewCapture): Promise
       title: fallbackTitle(input.text, input.url),
       durationMs: input.durationMs ?? null,
       device: input.device ?? null,
+      capturedAt: input.capturedAt ?? null,
+      timeZone: input.timeZone ?? null,
+      keptAsNote: input.keptAsNote ?? false,
     })
     .onConflictDoNothing({ target: [captures.ownerId, captures.clientId] })
     .returning();
@@ -261,38 +282,57 @@ export async function getOverview(db: Db, ownerId: string, perCategory: number, 
 export async function classifyCapture(db: Db, ai: Ai, row: CaptureRow): Promise<CaptureRow> {
   // No key configured yet: leave it pending so it is sorted once a key is added.
   if (!ai.available) return row;
+  const attempt = await beginClassification(db, row);
+  if (!attempt) return (await getCapture(db, row.ownerId, row.id)) ?? row;
+  try {
+    return await finishClassification(db, attempt, await askCategory(db, ai, attempt));
+  } catch {
+    return failClassification(db, attempt);
+  }
+}
+
+// The steps of one classification attempt, shared with captures/sort.ts, which also looks at
+// what the capture is (a note, or something for Nutrition) between asking and finishing.
+
+/** Counts the attempt. Null when the capture is already sorted (or gone): nothing to do. */
+export async function beginClassification(db: Db, row: CaptureRow): Promise<CaptureRow | null> {
   const [attempt] = await db
     .update(captures)
     .set({ classificationAttempts: sql`${captures.classificationAttempts} + 1` })
     .where(and(eq(captures.id, row.id), ne(captures.classificationStatus, 'done')))
     .returning();
-  if (!attempt) return (await getCapture(db, row.ownerId, row.id)) ?? row;
+  return attempt ?? null;
+}
 
-  try {
-    // The owner's categories as they are now: a category added a minute ago is a valid answer.
-    const options = await listCategories(db, attempt.ownerId);
-    const result = await ai.classify({ kind: attempt.kind, text: attempt.text, url: attempt.url, categories: options });
-    // A category deleted while the model was answering would break the foreign key: the
-    // attempt then fails like any other and the sweeper asks again with the current list.
-    const [updated] = await db
-      .update(captures)
-      .set({
-        classificationStatus: 'done',
-        category: sql`case when ${captures.categorySource} = 'manual' then ${captures.category} else ${result.category} end`,
-        categorySource: sql`case when ${captures.categorySource} = 'manual' then ${captures.categorySource} else 'auto'::category_source end`,
-        title: sql`case when ${captures.titleManual} then ${captures.title} else ${result.title} end`,
-      })
-      .where(eq(captures.id, attempt.id))
-      .returning();
-    return updated ?? attempt;
-  } catch {
-    const [updated] = await db
-      .update(captures)
-      .set({ classificationStatus: 'failed' })
-      .where(and(eq(captures.id, attempt.id), ne(captures.classificationStatus, 'done')))
-      .returning();
-    return updated ?? attempt;
-  }
+export async function askCategory(db: Db, ai: Ai, attempt: CaptureRow): Promise<ClassifyResult> {
+  // The owner's categories as they are now: a category added a minute ago is a valid answer.
+  const options = await listCategories(db, attempt.ownerId);
+  return ai.classify({ kind: attempt.kind, text: attempt.text, url: attempt.url, categories: options });
+}
+
+export async function finishClassification(db: Db, attempt: CaptureRow, result: ClassifyResult): Promise<CaptureRow> {
+  // A category deleted while the model was answering would break the foreign key: the
+  // attempt then fails like any other and the sweeper asks again with the current list.
+  const [updated] = await db
+    .update(captures)
+    .set({
+      classificationStatus: 'done',
+      category: sql`case when ${captures.categorySource} = 'manual' then ${captures.category} else ${result.category} end`,
+      categorySource: sql`case when ${captures.categorySource} = 'manual' then ${captures.categorySource} else 'auto'::category_source end`,
+      title: sql`case when ${captures.titleManual} then ${captures.title} else ${result.title} end`,
+    })
+    .where(eq(captures.id, attempt.id))
+    .returning();
+  return updated ?? attempt;
+}
+
+export async function failClassification(db: Db, attempt: CaptureRow): Promise<CaptureRow> {
+  const [updated] = await db
+    .update(captures)
+    .set({ classificationStatus: 'failed' })
+    .where(and(eq(captures.id, attempt.id), ne(captures.classificationStatus, 'done')))
+    .returning();
+  return updated ?? attempt;
 }
 
 export interface CapturePatch {

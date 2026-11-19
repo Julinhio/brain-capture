@@ -45,6 +45,13 @@ export type ApiErrorCode =
   | 'calendar_unavailable'
   /** The capture was deleted for good: a device still holding it must drop it. */
   | 'capture_deleted'
+  /** The photo could not be read right now: the phone keeps it and tries again. */
+  | 'photo_failed'
+  /** The photo itself was refused, or nothing could be read in it: retrying cannot help. */
+  | 'photo_rejected'
+  | 'image_too_large'
+  /** Asked to log something in Nutrition that holds no meal, workout or weight. */
+  | 'not_nutrition'
   | 'internal';
 
 export interface ApiError {
