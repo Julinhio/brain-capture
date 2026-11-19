@@ -76,6 +76,7 @@ describe('an entry counts once confirmed', () => {
 
   it('refuses values that make no sense, and an empty meal cannot be confirmed', async () => {
     const entry = await log('une banane');
+    expect((await call('PATCH', `/api/nutrition/entries/${entry.id}`, { day: shiftDay(today(), 3) })).statusCode).toBe(400);
     const bad = await call('PATCH', `/api/nutrition/entries/${entry.id}`, { data: { slot: 'snack', items: [{ name: 'x', grams: -5, kcal: 10, protein: 0, carbs: 0, fat: 0 }] } });
     expect(bad.statusCode).toBe(400);
     const empty = await call('PATCH', `/api/nutrition/entries/${entry.id}`, { status: 'confirmed', data: { slot: 'snack', items: [] } });
@@ -142,6 +143,16 @@ describe('workouts and the day balance', () => {
     ctx.ai.nextNutrition = workout('Vélo', 45, 7.5);
     const entry = await log('45 min de vélo');
     expect(entry.data).toMatchObject({ kcal: 450, weightKg: 80 });
+  });
+
+  it('a workout logged on a past day uses the weight of that day, not a later one', async () => {
+    const past = shiftDay(today(), -3);
+    await weigh(90, { day: shiftDay(today(), -5) });
+    await weigh(70);
+    ctx.ai.nextNutrition = workout('Vélo', 60, 8);
+    // Logged from the view of three days ago: 90 kg then, although the scale says 70 today.
+    expect(await log('une heure de vélo', { day: past })).toMatchObject({ day: past, data: { kcal: 720, weightKg: 90 } });
+    expect((await log('une heure de vélo')).data).toMatchObject({ kcal: 560, weightKg: 70 });
   });
 
   it('keeps the calories the note itself gives, and assumes half an hour when no duration is said', async () => {

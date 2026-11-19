@@ -230,13 +230,13 @@ export function registerNutritionRoutes(app: FastifyInstance, { db, ai, foods }:
       let built;
       try {
         if (!ai.available) throw new Error('No AI provider configured');
-        built = await buildEntry(db, foods, ownerId, await ai.extractNutrition({ text: input.text!, ...when }), when);
+        built = await buildEntry(db, foods, ownerId, await ai.extractNutrition({ text: input.text!, ...when }), when, input.day);
       } catch (err) {
         req.log.warn({ err: (err as Error).message }, 'nutrition reading failed');
         return sendError(reply, 503, 'internal', 'Automatic reading is unavailable right now. Try again in a moment.');
       }
       if (!built) return sendError(reply, 422, 'not_nutrition', NOT_NUTRITION);
-      entry = { ...built, day: input.day ?? built.day, status: 'proposed' as const, source: 'text' as const, originalText: input.text! };
+      entry = { ...built, status: 'proposed' as const, source: 'text' as const, originalText: input.text! };
     }
     const saved = await storeEntry(db, ownerId, { ...entry, clientId: input.clientId, when });
     if (saved.kind === 'deleted') return sendError(reply, 410, 'capture_deleted', DELETED_MESSAGE);
@@ -296,7 +296,12 @@ export function registerNutritionRoutes(app: FastifyInstance, { db, ai, foods }:
       patch.data = data;
     }
     if (body.data.title !== undefined) patch.title = body.data.title;
-    if (body.data.day !== undefined) patch.day = body.data.day;
+    if (body.data.day !== undefined) {
+      // Nothing is eaten tomorrow. The latest "today" anywhere (UTC+14) is the bound, so a
+      // phone ahead of the server is never refused its own today.
+      if (body.data.day > localDay(new Date(), 'Pacific/Kiritimati')) return sendError(reply, 400, 'invalid_input', 'This day has not happened yet.');
+      patch.day = body.data.day;
+    }
     if (body.data.status) {
       const problem = dataProblem(current.type, patch.data ?? current.data);
       if (problem) return sendError(reply, 400, 'invalid_input', problem);

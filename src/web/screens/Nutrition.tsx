@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronLeft, ChevronRight, Dumbbell, Pencil, Scale, Utensils } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import {
   MAX_KCAL_GOAL,
   MEAL_SLOTS,
@@ -56,11 +56,11 @@ export function Nutrition({ phone = false }: { phone?: boolean }) {
           <p className="mono">Estimates, to keep your bearings</p>
           <h1>Nutrition</h1>
         </div>
-        <div className="nut-tabs" role="tablist" aria-label="Nutrition views">
-          <button type="button" role="tab" aria-selected={tab === 'day'} className="cat-option" aria-pressed={tab === 'day'} onClick={() => navigate(href({ day }))}>
+        <div className="nut-tabs" role="group" aria-label="Nutrition views">
+          <button type="button" className="cat-option" aria-pressed={tab === 'day'} onClick={() => navigate(href({ day }))}>
             Day
           </button>
-          <button type="button" role="tab" aria-selected={tab === 'trends'} className="cat-option" aria-pressed={tab === 'trends'} onClick={() => navigate(href({ tab: 'trends', range }))}>
+          <button type="button" className="cat-option" aria-pressed={tab === 'trends'} onClick={() => navigate(href({ tab: 'trends', range }))}>
             Trends
           </button>
         </div>
@@ -246,17 +246,27 @@ function QuickLog({ day }: { day: string }) {
   const queryClient = useQueryClient();
   const [text, setText] = useState('');
   const [kg, setKg] = useState('');
-  const base = () => ({ clientId: crypto.randomUUID(), capturedAt: Date.now(), timeZone: deviceZone, ...(day !== todayHere() ? { day } : {}) });
+  // One id per submission, kept until the server confirms it: sending the same thing again
+  // after a lost answer reaches the entry already stored instead of creating a second one.
+  // Something different (another text, another weight, another day) is a new submission.
+  const pending = useRef<{ key: string; clientId: string } | null>(null);
+  const base = (key: string) => {
+    const id = `${day}|${key}`;
+    if (pending.current?.key !== id) pending.current = { key: id, clientId: crypto.randomUUID() };
+    return { clientId: pending.current.clientId, capturedAt: Date.now(), timeZone: deviceZone, ...(day !== todayHere() ? { day } : {}) };
+  };
   const read = useMutation({
-    mutationFn: (value: string) => api.logNutrition({ ...base(), text: value }),
+    mutationFn: (value: string) => api.logNutrition({ ...base(`text|${value}`), text: value }),
     onSuccess: () => {
+      pending.current = null;
       setText('');
       refreshNutrition(queryClient);
     },
   });
   const weigh = useMutation({
-    mutationFn: (value: number) => api.logNutrition({ ...base(), weightKg: value }),
+    mutationFn: (value: number) => api.logNutrition({ ...base(`kg|${value}`), weightKg: value }),
     onSuccess: () => {
+      pending.current = null;
       setKg('');
       refreshNutrition(queryClient);
     },

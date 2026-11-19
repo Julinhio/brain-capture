@@ -81,7 +81,8 @@ function NumberField({
             const raw = e.target.value.replace(/[^0-9.,]/g, '');
             setText(raw);
             const n = Number(raw.replace(',', '.'));
-            if (raw !== '' && Number.isFinite(n) && n >= 0 && (max === undefined || n <= max)) onChange(step >= 1 ? Math.round(n) : n);
+            // Past the bound, the bound: what is saved is never something other than what the field ends up showing.
+            if (raw !== '' && Number.isFinite(n) && n >= 0) onChange(Math.min(step >= 1 ? Math.round(n) : n, max ?? Infinity));
           }}
         />
         {unit && <span className="nut-unit">{unit}</span>}
@@ -147,7 +148,8 @@ export function NutritionCard({
   const proposed = entry.status === 'proposed';
   const dirty = JSON.stringify(data) !== JSON.stringify(entry.data) || title.trim() !== entry.title || day !== entry.day;
   const problem = dataProblem(entry.type, data) ?? (title.trim() ? null : 'Give it a name.');
-  const busy = update.isPending || remove.isPending || toNote.isPending;
+  // A food being read counts as busy: saving now would store the meal without it.
+  const busy = update.isPending || remove.isPending || toNote.isPending || estimate.isPending;
   const error = update.error ?? remove.error ?? toNote.error;
   const Icon = TYPE_ICON[entry.type];
 

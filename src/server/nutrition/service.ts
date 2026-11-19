@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, lte } from 'drizzle-orm';
 import {
   DEFAULT_KCAL_GOAL,
   DEFAULT_WEIGHT_KG,
@@ -97,9 +97,20 @@ export async function latestWeight(db: Db, ownerId: string, onOrBefore?: string)
   return row ? { kg: (row.data as WeightData).kg, day: row.day } : null;
 }
 
-/** Null when the model saw nothing to log (`none`, or a type without its essentials). */
-export async function buildEntry(db: Db, foods: FoodLookup, ownerId: string, x: NutritionExtraction, when: When): Promise<BuiltEntry | null> {
-  const day = shiftDay(localDay(when.reference, when.timeZone), x.dayOffset);
+/**
+ * Null when the model saw nothing to log (`none`, or a type without its essentials).
+ * `onDay`: the day Julien chose himself (logging from a past day's view). It wins over what the
+ * text says, and everything computed for the entry (the weight behind a workout) is that day's.
+ */
+export async function buildEntry(
+  db: Db,
+  foods: FoodLookup,
+  ownerId: string,
+  x: NutritionExtraction,
+  when: When,
+  onDay?: string,
+): Promise<BuiltEntry | null> {
+  const day = onDay ?? shiftDay(localDay(when.reference, when.timeZone), x.dayOffset);
   if (x.type === 'weight') {
     if (x.kg === null || x.kg < MIN_WEIGHT_KG || x.kg > MAX_WEIGHT_KG) return null;
     const data: WeightData = { kg: round1(x.kg) };
@@ -129,8 +140,9 @@ export async function buildEntry(db: Db, foods: FoodLookup, ownerId: string, x: 
         return { name: f.name, grams: f.grams, ...portion(match.per100, f.grams), per100: match.per100, source: match.source, ref: match.ref };
       }),
     );
-    // Said for another day ("hier soir") without naming the meal: the time now says nothing.
-    const slot = x.slot ?? (x.dayOffset === 0 ? slotForHour(localHour(when.reference, when.timeZone)) : 'snack');
+    // Said or logged for another day without naming the meal: the time now says nothing.
+    const today = day === localDay(when.reference, when.timeZone);
+    const slot = x.slot ?? (today ? slotForHour(localHour(when.reference, when.timeZone)) : 'snack');
     const data: MealData = { slot, items };
     return { type: 'meal', title: (x.title || defaultTitle('meal', data)).slice(0, MAX_TITLE), day, data };
   }
@@ -412,11 +424,3 @@ export async function getHistory(db: Db, ownerId: string, from: string, to: stri
   return { from, to, days: [...days.values()], settings: await getSettings(db, ownerId) };
 }
 
-/** How many entries wait for a tap: the small badge next to the section's name. */
-export async function countPending(db: Db, ownerId: string): Promise<number> {
-  const [row] = await db
-    .select({ n: sql<number>`count(*)::int` })
-    .from(nutritionEntries)
-    .where(and(eq(nutritionEntries.ownerId, ownerId), eq(nutritionEntries.status, 'proposed')));
-  return row?.n ?? 0;
-}

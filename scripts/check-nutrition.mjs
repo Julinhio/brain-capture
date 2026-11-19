@@ -187,7 +187,7 @@ async function main() {
     proofs.editAndDelete = true;
 
     // 5. Trends: the three charts, drawn from the month of history.
-    await page.getByRole('tab', { name: 'Trends' }).click();
+    await page.getByRole('button', { name: 'Trends', exact: true }).click();
     await page.getByRole('heading', { name: 'Calories eaten per day' }).waitFor();
     await page.locator('.chart-bar').first().waitFor();
     const bars = await page.locator('.chart-bar').count();
@@ -234,7 +234,7 @@ async function main() {
     await page.locator('img.nut-thumb').first().waitFor();
     await page.screenshot({ path: '.shots/nutrition-mobile-day.png', fullPage: true });
     if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) throw new Error('mobile overflow (day)');
-    await page.getByRole('tab', { name: 'Trends' }).click();
+    await page.getByRole('button', { name: 'Trends', exact: true }).click();
     await page.locator('.chart-bar').first().waitFor();
     await page.screenshot({ path: '.shots/nutrition-mobile-trends.png', fullPage: true });
     if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)) throw new Error('mobile overflow (trends)');
