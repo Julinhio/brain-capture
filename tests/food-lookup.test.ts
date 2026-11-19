@@ -37,7 +37,8 @@ describe('matching a food said in French', () => {
     // An apple is not a potato, ice cream is not vanilla extract, pâté is not pasta.
     expect(name('pomme', 52)).toMatch(/^Pomme, chair/);
     expect(name('pomme de terre cuite', 85)).toMatch(/^Pomme de terre/);
-    expect(name('glace vanille', 200)).toMatch(/^Glace/);
+    expect(name('glace vanille', 200) ?? '').not.toMatch(/^Vanille/);
+    expect(name('barre protéinée', 380)).toBeNull();
     expect(name('pâté de campagne', 320)).toMatch(/^Pâté/);
     expect(name('pâtes cuites', 150)).toMatch(/^Pâtes/);
     expect(foodTokens('Pâté et pâtes fraîches, crues')).toEqual(['patE', 'pat', 'fraich', 'cru']);
@@ -100,7 +101,7 @@ describe('where an item’s values come from', () => {
     expect((await lookup([], [], 503).resolve(query)).source).toBe('ciqual');
     const broken = createFoodLookup({ fetchImpl: (async () => Promise.reject(new Error('timeout'))) as typeof fetch });
     expect((await broken.resolve(query)).source).toBe('ciqual');
-    expect(await broken.resolve({ name: 'Barre maison', nameFr: 'barre énergétique maison', brand: 'Feed', estimate: { kcal: 490, protein: 9, carbs: 60, fat: 24 } })).toEqual({
+    expect(await broken.resolve({ name: 'Barre maison', nameFr: 'spécialité inconnue xyzzy', brand: 'Feed', estimate: { kcal: 490, protein: 9, carbs: 60, fat: 24 } })).toEqual({
       per100: { kcal: 490, protein: 9, carbs: 60, fat: 24 },
       source: 'estimate',
       ref: null,

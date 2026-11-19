@@ -98,6 +98,7 @@ function ciqualIndex(): IndexedFood[] {
 }
 
 const MIN_SCORE = 2.4;
+const MIN_COVERAGE = 0.6;
 /** Beyond this gap with the model's own estimate, a match is a look-alike, not the food. */
 const MAX_KCAL_GAP = 0.45;
 
@@ -127,6 +128,8 @@ export function matchCiqual(nameFr: string, estimateKcal?: number): CiqualMatch 
     // The table's main word must be among the words said ("pomme" → "Pomme, ..."), unless
     // several words were said and all are in the name ("steak haché" → "Boeuf, steak haché
     // 15% MG, cuit"). One word alone is not enough: "kebab" is not "Pizza kebab".
+    // Half of what was said must be found, and more: "barre maison" is not a chocolate bar.
+    if (covered < MIN_COVERAGE) continue;
     const headSaid = q.has(food.head[0]!);
     if (!headSaid && !(specific >= 2 && query.every((t) => food.tokens.has(t)))) continue;
     const restOfHead = food.head.slice(1);
@@ -233,7 +236,7 @@ export function createFoodLookup(options: { fetchImpl?: typeof fetch | null } = 
         }
         if (product) return product;
       }
-      const match = matchCiqual(query.nameFr || query.name, query.estimate.kcal) ?? (query.nameFr ? matchCiqual(query.name, query.estimate.kcal) : null);
+      const match = matchCiqual(query.nameFr || query.name, query.estimate.kcal);
       if (match) {
         const [, name, kcal, protein, carbs, fat] = match.row;
         return { per100: { kcal, protein, carbs, fat }, source: 'ciqual', ref: name };
